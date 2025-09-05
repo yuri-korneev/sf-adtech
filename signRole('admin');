@@ -1,0 +1,9 @@
+[90m= [39m[34;4mApp\Models\User[39;24m {#6101
+    [34memail[39m: "[32mkorney_k@mail.ru[39m",
+    [34mname[39m: "[32mKorney[39m",
+    #[33mpassword[39m: "[32m$2y$12$SyhUlsNAxbRLXR4hscWtyO8w.Z4M/c4s/sklj3k4DDmpr5M01SWhu[39m",
+    [34mupdated_at[39m: "[32m2025-09-04 14:01:52[39m",
+    [34mcreated_at[39m: "[32m2025-09-04 14:01:52[39m",
+    [34mid[39m: [35m1[39m,
+  }
+
