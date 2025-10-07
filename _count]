@@ -1,0 +1,12 @@
+[90m= [39m[34;4mApp\Models\Offer[39;24m {#6710
+    [34mid[39m: [35m1[39m,
+    [34madvertiser_id[39m: [35m3[39m,
+    [34mname[39m: "[32mTest Offer[39m",
+    [34mcpc[39m: "[32m0.2000[39m",
+    [34mtarget_url[39m: "[32mhttps://example.com[39m",
+    [34mis_active[39m: [35m1[39m,
+    [34mcreated_at[39m: "[32m2025-09-25 11:35:39[39m",
+    [34mupdated_at[39m: "[32m2025-09-25 11:35:39[39m",
+    [34mclicks_count[39m: [35m1[39m,
+  }
+

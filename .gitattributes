@@ -1,11 +1,47 @@
+# Базово: все текстовые файлы в репозитории храним как LF
 * text=auto eol=lf
 
+# Улучшенные диффы
 *.blade.php diff=html
-*.css diff=css
-*.html diff=html
-*.md diff=markdown
-*.php diff=php
+*.css       diff=css
+*.html      diff=html
+*.md        diff=markdown
+*.php       diff=php
+*.yml       diff=yaml
+*.yaml      diff=yaml
+*.json      diff=json
 
-/.github export-ignore
-CHANGELOG.md export-ignore
-.styleci.yml export-ignore
+# Бинарники — не трогаем EOL и не пытаемся мержить как текст
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.svg  binary
+*.ico  binary
+*.pdf  binary
+*.zip  binary
+*.gz   binary
+*.tar  binary
+*.7z   binary
+*.mp4  binary
+*.mov  binary
+*.wav  binary
+*.mp3  binary
+*.woff binary
+*.woff2 binary
+*.ttf  binary
+*.eot  binary
+*.otf  binary
+*.sqlite binary
+
+# Скрипты под Windows — разрешаем CRLF, если вдруг есть
+*.bat eol=crlf
+*.cmd eol=crlf
+
+# (опционально) bash-скрипты — явно LF
+*.sh  eol=lf
+
+# Не включать эти файлы/папки в архивы (git archive)
+/.github        export-ignore
+CHANGELOG.md    export-ignore
+.styleci.yml    export-ignore

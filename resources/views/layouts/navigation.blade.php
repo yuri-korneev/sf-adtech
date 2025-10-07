@@ -10,21 +10,74 @@
                     </a>
                 </div>
 
-                <!-- Navigation Links -->
+                <!-- Navigation Links (desktop) -->
                 <div class="hidden space-x-8 sm:-my-px sm:ms-10 sm:flex">
                     <x-nav-link :href="route('dashboard')" :active="request()->routeIs('dashboard')">
-                        {{ __('Dashboard') }}
+                        {{ __('Личный кабинет') }}
                     </x-nav-link>
+
+                    @auth
+                        @php $role = auth()->user()->role ?? null; @endphp
+
+
+                        {{-- Админ --}}
+                        @if($role === 'admin')
+                            <x-nav-link :href="route('admin.dashboard')" :active="request()->routeIs('admin.*')">
+                                {{ __('Админка') }}
+                            </x-nav-link>
+                            <x-nav-link :href="route('admin.users')" :active="request()->routeIs('admin.users')">
+                                {{ __('Пользователи') }}
+                            </x-nav-link>
+                            <x-nav-link :href="route('admin.offers')" :active="request()->routeIs('admin.offers')">
+                                {{ __('Офферы') }}
+                            </x-nav-link>
+                            <x-nav-link :href="route('admin.topics.index')" :active="request()->routeIs('admin.topics.*')">
+                                {{ __('Темы') }}
+                            </x-nav-link>
+                            <x-nav-link :href="route('admin.clicks')" :active="request()->routeIs('admin.clicks')">
+                                {{ __('Клики') }}
+                            </x-nav-link>
+                        @endif
+
+                        {{-- Рекламодатель --}}
+                        @if($role === 'advertiser')
+                            <x-nav-link :href="route('adv.home')" :active="request()->routeIs('adv.home')">
+                                {{ __('Рекламодатель') }}
+                            </x-nav-link>
+                            <x-nav-link :href="route('adv.offers.index')" :active="request()->routeIs('adv.offers.*')">
+                                {{ __('Мои офферы') }}
+                            </x-nav-link>
+                            <x-nav-link :href="route('adv.stats')" :active="request()->routeIs('adv.stats')">
+                                {{ __('Статистика') }}
+                            </x-nav-link>
+                        @endif
+
+                        {{-- Веб-мастер --}}
+                        @if($role === 'webmaster')
+                            <x-nav-link :href="route('wm.home')" :active="request()->routeIs('wm.home')">
+                                {{ __('Веб-мастер') }}
+                            </x-nav-link>
+                            <x-nav-link :href="route('wm.offers')" :active="request()->routeIs('wm.offers')">
+                                {{ __('Офферы') }}
+                            </x-nav-link>
+                            <x-nav-link :href="route('wm.subs.index')" :active="request()->routeIs('wm.subs.index')">
+                                {{ __('Мои подписки') }}
+                            </x-nav-link>
+                            <x-nav-link href="{{ route('wm.stats') }}" :active="request()->routeIs('wm.stats*')">
+                                {{ __('Статистика') }}
+                            </x-nav-link>
+                        @endif
+                    @endauth
                 </div>
             </div>
 
-            <!-- Settings Dropdown -->
+            <!-- Settings Dropdown (desktop) -->
+            @auth
             <div class="hidden sm:flex sm:items-center sm:ms-6">
                 <x-dropdown align="right" width="48">
                     <x-slot name="trigger">
                         <button class="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-gray-500 bg-white hover:text-gray-700 focus:outline-none transition ease-in-out duration-150">
                             <div>{{ Auth::user()->name }}</div>
-
                             <div class="ms-1">
                                 <svg class="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
                                     <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
@@ -35,24 +88,22 @@
 
                     <x-slot name="content">
                         <x-dropdown-link :href="route('profile.edit')">
-                            {{ __('Profile') }}
+                            {{ __('Профиль') }}
                         </x-dropdown-link>
 
-                        <!-- Authentication -->
                         <form method="POST" action="{{ route('logout') }}">
                             @csrf
-
                             <x-dropdown-link :href="route('logout')"
-                                    onclick="event.preventDefault();
-                                                this.closest('form').submit();">
-                                {{ __('Log Out') }}
+                                onclick="event.preventDefault(); this.closest('form').submit();">
+                                {{ __('Выйти') }}
                             </x-dropdown-link>
                         </form>
                     </x-slot>
                 </x-dropdown>
             </div>
+            @endauth
 
-            <!-- Hamburger -->
+            <!-- Hamburger (mobile) -->
             <div class="-me-2 flex items-center sm:hidden">
                 <button @click="open = ! open" class="inline-flex items-center justify-center p-2 rounded-md text-gray-400 hover:text-gray-500 hover:bg-gray-100 focus:outline-none focus:bg-gray-100 focus:text-gray-500 transition duration-150 ease-in-out">
                     <svg class="h-6 w-6" stroke="currentColor" fill="none" viewBox="0 0 24 24">
@@ -64,15 +115,67 @@
         </div>
     </div>
 
-    <!-- Responsive Navigation Menu -->
+    <!-- Responsive Navigation Menu (mobile) -->
     <div :class="{'block': open, 'hidden': ! open}" class="hidden sm:hidden">
         <div class="pt-2 pb-3 space-y-1">
             <x-responsive-nav-link :href="route('dashboard')" :active="request()->routeIs('dashboard')">
-                {{ __('Dashboard') }}
+                {{ __('Личный кабинет') }}
             </x-responsive-nav-link>
+
+            @auth
+                @php $role = auth()->user()->role ?? null; @endphp
+
+                @if($role === 'admin')
+                    <x-responsive-nav-link :href="route('admin.dashboard')" :active="request()->routeIs('admin.*')">
+                        {{ __('Админка') }}
+                    </x-responsive-nav-link>
+                    <x-responsive-nav-link :href="route('admin.users')" :active="request()->routeIs('admin.users')">
+                        {{ __('Пользователи') }}
+                    </x-responsive-nav-link>
+                    <x-responsive-nav-link :href="route('admin.offers')" :active="request()->routeIs('admin.offers')">
+                        {{ __('Офферы') }}
+                    </x-responsive-nav-link>
+                    <x-responsive-nav-link :href="route('admin.topics.index')" :active="request()->routeIs('admin.topics.*')">
+                        {{ __('Темы') }}
+                    </x-responsive-nav-link>
+                    <x-responsive-nav-link :href="route('admin.clicks')" :active="request()->routeIs('admin.clicks')">
+                        {{ __('Клики') }}
+                    </x-responsive-nav-link>
+                @endif
+
+                @if($role === 'advertiser')
+                    <x-responsive-nav-link :href="route('adv.home')" :active="request()->routeIs('adv.home')">
+                        {{ __('Рекламодатель') }}
+                    </x-responsive-nav-link>
+                    <x-responsive-nav-link :href="route('adv.offers.index')" :active="request()->routeIs('adv.offers.*')">
+                        {{ __('Мои офферы') }}
+                    </x-responsive-nav-link>
+                    <x-responsive-nav-link :href="route('adv.stats')" :active="request()->routeIs('adv.stats')">
+                        {{ __('Статистика') }}
+                    </x-responsive-nav-link>
+                @endif
+
+                @if($role === 'webmaster')
+                    <x-responsive-nav-link :href="route('wm.home')" :active="request()->routeIs('wm.home')">
+                        {{ __('Веб-мастер') }}
+                    </x-responsive-nav-link>
+                    <x-responsive-nav-link :href="route('wm.offers')" :active="request()->routeIs('wm.offers')">
+                        {{ __('Офферы') }}
+                    </x-responsive-nav-link>
+                    <x-responsive-nav-link :href="route('wm.subs.index')" :active="request()->routeIs('wm.subs.index')">
+                        {{ __('Мои подписки') }}
+                    </x-responsive-nav-link>
+                    <x-responsive-nav-link :href="route('wm.stats')" :active="request()->routeIs('wm.stats') || request()->routeIs('wm.stats.*')">
+                        {{ __('Статистика') }}
+                    </x-responsive-nav-link>
+
+
+                @endif
+            @endauth
         </div>
 
         <!-- Responsive Settings Options -->
+        @auth
         <div class="pt-4 pb-1 border-t border-gray-200">
             <div class="px-4">
                 <div class="font-medium text-base text-gray-800">{{ Auth::user()->name }}</div>
@@ -81,20 +184,18 @@
 
             <div class="mt-3 space-y-1">
                 <x-responsive-nav-link :href="route('profile.edit')">
-                    {{ __('Profile') }}
+                    {{ __('Профиль') }}
                 </x-responsive-nav-link>
 
-                <!-- Authentication -->
                 <form method="POST" action="{{ route('logout') }}">
                     @csrf
-
                     <x-responsive-nav-link :href="route('logout')"
-                            onclick="event.preventDefault();
-                                        this.closest('form').submit();">
-                        {{ __('Log Out') }}
+                        onclick="event.preventDefault(); this.closest('form').submit();">
+                        {{ __('Выйти') }}
                     </x-responsive-nav-link>
                 </form>
             </div>
         </div>
+        @endauth
     </div>
 </nav>
