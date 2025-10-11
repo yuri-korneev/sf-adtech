@@ -37,17 +37,24 @@ RateLimiter::for('redirects', function (Request $request) {
 Route::middleware('throttle:redirects')->get('/r/{token}', RedirectController::class)->name('redirect');
 
 // B4: группа для веб-мастера
-Route::middleware(['auth','role:webmaster'])->prefix('wm')->name('wm.')->group(function () {
-    Route::get('/', fn () => view('wm.home'))->name('home');
+Route::middleware(['auth','role:webmaster'])
+    ->prefix('wm')
+    ->name('wm.')
+    ->group(function () {
+        Route::get('/', fn () => view('wm.home'))->name('home');
 
-    Route::get('/offers', [SubscriptionController::class, 'offers'])->name('offers');
-    Route::post('/subscribe/{offer}', [SubscriptionController::class, 'subscribe'])->name('subscribe');
-    Route::get('/subscriptions', [SubscriptionController::class, 'index'])->name('subs.index');
+        Route::get('/offers', [SubscriptionController::class, 'offers'])->name('offers');
+        Route::post('/subscribe/{offer}', [SubscriptionController::class, 'subscribe'])->name('subscribe');
+        Route::get('/subscriptions', [SubscriptionController::class, 'index'])->name('subs.index');
 
-    // Статистика вебмастера (БЕЗ вложенной wm-группы!)
-    Route::get('/stats',      [WmStatsController::class, 'stats'])->name('stats');
-    Route::get('/stats/data', [WmStatsController::class, 'statsData'])->name('stats.data');
-    Route::get('/stats/csv',  [WmStatsController::class, 'statsCsv'])->name('stats.csv');
+        // Статистика вебмастера (БЕЗ вложенной wm-группы!)
+        Route::get('/stats',      [WmStatsController::class, 'stats'])->name('stats');
+        Route::get('/stats/data', [WmStatsController::class, 'statsData'])->name('stats.data');
+        Route::get('/stats/csv',  [WmStatsController::class, 'statsCsv'])->name('stats.csv');
+
+        // Отписаться — ВАЖНО: без повторного "wm." в name()
+        Route::post('/subscriptions/{id}/unsubscribe', [SubscriptionController::class, 'unsubscribe'])
+            ->name('unsubscribe');
 });
 
 // B4: группа для рекламодателя

@@ -127,4 +127,8 @@ return [
         'store' => env('APP_MAINTENANCE_STORE', 'database'),
     ],
 
+     'commission' => env('SYSTEM_COMMISSION', 0.20), // 20% по умолчанию
 ];
+
+
+

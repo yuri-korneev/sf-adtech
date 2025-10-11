@@ -19,6 +19,13 @@
         </div>
     </x-slot>
 
+    @php
+        // Комиссия системы (0..1). По умолчанию 20%.
+        $commission = (float) config('sf.commission', 0.20);
+        $commissionPct = (int) round($commission * 100);
+        $wmPct = 100 - $commissionPct;
+    @endphp
+
     <div class="py-6 max-w-7xl mx-auto sm:px-6 lg:px-8">
 
         {{-- Фильтры --}}
@@ -64,21 +71,44 @@
                            class="border rounded h-10 px-3">
                 </div>
 
-
                 {{-- Кнопки --}}
                 <div class="self-end mt-2 md:mt-1 flex items-center gap-2">
                     <button class="h-10 w-32 px-4 rounded border bg-white hover:bg-gray-50">Применить</button>
                     @if(request()->query())
                         <a href="{{ route('adv.stats') }}"
-                        class="h-10 px-4 rounded border bg-white hover:bg-gray-50 inline-flex items-center">
+                           class="h-10 px-4 rounded border bg-white hover:bg-gray-50 inline-flex items-center">
                             Сбросить
                         </a>
                     @endif
                 </div>
-
-
-
             </form>
+        </div>
+
+        {{-- Карточки итогов за период --}}
+        @php
+            $advCostTot = (float) ($totals['cost'] ?? 0);
+            $wmPayoutTot = $advCostTot * (1 - $commission);
+            $systemRevenueTot = $advCostTot * $commission;
+        @endphp
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6">
+            <div class="p-4 rounded border bg-white">
+                <div class="text-sm text-gray-500">Расход рекламодателя</div>
+                <div class="text-2xl font-semibold">
+                    {{ number_format($advCostTot, 2, ',', ' ') }} ₽
+                </div>
+            </div>
+            <div class="p-4 rounded border bg-white">
+                <div class="text-sm text-gray-500">Выплата веб-мастерам ({{ $wmPct }}%)</div>
+                <div class="text-2xl font-semibold">
+                    {{ number_format($wmPayoutTot, 2, ',', ' ') }} ₽
+                </div>
+            </div>
+            <div class="p-4 rounded border bg-white">
+                <div class="text-sm text-gray-500">Доход системы ({{ $commissionPct }}%)</div>
+                <div class="text-2xl font-semibold">
+                    {{ number_format($systemRevenueTot, 2, ',', ' ') }} ₽
+                </div>
+            </div>
         </div>
 
         {{-- График --}}
@@ -86,6 +116,7 @@
             <div class="font-semibold mb-3">График по дням</div>
             <canvas id="advChart" height="120"></canvas>
         </div>
+
         {{-- Таблица по дням --}}
         <div class="mt-6 bg-white border rounded overflow-x-auto" id="adv-stats-table">
             <style>
@@ -102,48 +133,55 @@
 
             <table class="w-full table-fixed text-left">
                 <thead class="border-b bg-gray-50">
-                <tr class="text-gray-700 text-sm">
-                    <th class="p-3">Дата</th>
-                    <th class="p-3 num">Клики (всего)</th>
-                    <th class="p-3 num">Клики (валидные)</th>
-                    <th class="p-3 num">Стоимость (₽)</th>
-                </tr>
+                    <tr class="text-gray-700 text-sm">
+                        <th class="p-3">Дата</th>
+                        <th class="p-3 num">Клики (всего)</th>
+                        <th class="p-3 num">Клики (валидные)</th>
+                        <th class="p-3 num">Расход, ₽</th>
+                        <th class="p-3 num">Выплата WM, ₽</th>
+                        <th class="p-3 num">Доход системы, ₽</th>
+                    </tr>
                 </thead>
                 <tbody>
                 @forelse($rows as $r)
+                    @php
+                        $advCost = (float)($r['cost'] ?? 0);
+                        $wmPayout = $advCost * (1 - $commission);
+                        $systemRevenue = $advCost * $commission;
+                    @endphp
                     <tr class="border-t">
                         <td class="p-3">
                             {{ \Illuminate\Support\Carbon::parse($r['date'])->translatedFormat('d.m.Y') }}
                         </td>
 
-                        <td class="p-3 num">{{ $r['clicks_total'] }}</td>
-                        <td class="p-3 num">{{ $r['clicks_valid'] }}</td>
-                        <td class="p-3 num">
-                            {{ number_format((float)$r['cost'], 2, '.', ' ') }}
-                        </td>
+                        <td class="p-3 num">{{ (int)$r['clicks_total'] }}</td>
+                        <td class="p-3 num">{{ (int)$r['clicks_valid'] }}</td>
+                        <td class="p-3 num">{{ number_format($advCost, 2, ',', ' ') }}</td>
+                        <td class="p-3 num">{{ number_format($wmPayout, 2, ',', ' ') }}</td>
+                        <td class="p-3 num">{{ number_format($systemRevenue, 2, ',', ' ') }}</td>
                     </tr>
                 @empty
                     <tr>
-                        <td class="p-4 text-center text-gray-600" colspan="4">
+                        <td class="p-4 text-center text-gray-600" colspan="6">
                             Нет данных за выбранный период.
                         </td>
                     </tr>
                 @endforelse
                 </tbody>
+
                 <tfoot class="border-t font-semibold">
                 <tr>
                     <td class="p-3">Итого</td>
-                    <td class="p-3 num">{{ $totals['clicks_total'] }}</td>
-                    <td class="p-3 num">{{ $totals['clicks_valid'] }}</td>
-                    <td class="p-3 num">
-                        {{ number_format((float)$totals['cost'], 2, '.', ' ') }}
-                    </td>
+                    <td class="p-3 num">{{ (int)$totals['clicks_total'] }}</td>
+                    <td class="p-3 num">{{ (int)$totals['clicks_valid'] }}</td>
+                    <td class="p-3 num">{{ number_format($advCostTot, 2, ',', ' ') }}</td>
+                    <td class="p-3 num">{{ number_format($wmPayoutTot, 2, ',', ' ') }}</td>
+                    <td class="p-3 num">{{ number_format($systemRevenueTot, 2, ',', ' ') }}</td>
                 </tr>
                 </tfoot>
             </table>
         </div>
-
-            </div>
+    </div>
 
     {{-- Chart.js (CDN) + построение графика --}}
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -153,19 +191,25 @@
         if (!el || !window.Chart) return;
 
         const rows = @json($rows);
+        const commission = {{ json_encode($commission) }};
+
         const labels      = rows.map(r => r.date);
-        const clicksAll   = rows.map(r => r.clicks_total);
-        const clicksValid = rows.map(r => r.clicks_valid);
-        const cost        = rows.map(r => Number(r.cost));
+        const clicksAll   = rows.map(r => Number(r.clicks_total || 0));
+        const clicksValid = rows.map(r => Number(r.clicks_valid || 0));
+        const advCost     = rows.map(r => Number(r.cost || 0));
+        const wmPayout    = advCost.map(v => v * (1 - commission));
+        const sysRevenue  = advCost.map(v => v * commission);
 
         new Chart(el, {
             type: 'line',
             data: {
                 labels,
                 datasets: [
-                    { label: 'Клики (всего)',    data: clicksAll,   borderWidth: 2, tension: 0.3 },
-                    { label: 'Клики (валидные)', data: clicksValid, borderWidth: 2, tension: 0.3 },
-                    { label: 'Стоимость (₽)',    data: cost,        borderWidth: 2, tension: 0.3, yAxisID: 'y2' }
+                    { label: 'Клики (всего)',    data: clicksAll,   borderWidth: 2, tension: 0.3, yAxisID: 'y'  },
+                    { label: 'Клики (валидные)', data: clicksValid, borderWidth: 2, tension: 0.3, yAxisID: 'y'  },
+                    { label: 'Расход, ₽',        data: advCost,     borderWidth: 2, tension: 0.3, yAxisID: 'y2' },
+                    { label: 'Выплата WM, ₽',    data: wmPayout,    borderWidth: 2, tension: 0.3, yAxisID: 'y2' },
+                    { label: 'Доход системы, ₽', data: sysRevenue,  borderWidth: 2, tension: 0.3, yAxisID: 'y2' },
                 ]
             },
             options: {
@@ -173,8 +217,8 @@
                 interaction: { mode: 'index', intersect: false },
                 plugins: { legend: { position: 'top' } },
                 scales: {
-                    y:  { beginAtZero: true },
-                    y2: { beginAtZero: true, position: 'right', grid: { drawOnChartArea: false } }
+                    y:  { beginAtZero: true, title: { display: true, text: 'Клики' } },
+                    y2: { beginAtZero: true, position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: '₽' } }
                 }
             }
         });

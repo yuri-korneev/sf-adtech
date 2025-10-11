@@ -34,7 +34,7 @@
                     <thead class="border-b bg-gray-50">
                         <tr class="text-gray-600">
                             <th class="p-3">Оффер</th>
-                            <th class="p-3">CPC</th>
+                            <th class="p-3">Стоимость клика</th>
                             <th class="p-3">Активен</th>
                             <th class="p-3">Подписок</th>
                             <th class="p-3">Клики (всего)</th>

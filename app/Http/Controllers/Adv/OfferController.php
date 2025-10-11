@@ -10,6 +10,9 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
+use Illuminate\Support\Facades\DB;
+
+
 class OfferController extends Controller
 {
     /**
@@ -163,9 +166,9 @@ class OfferController extends Controller
     /** CSV-выгрузка тех же данных — /adv/stats/csv */
     public function statsCsv(Request $request): StreamedResponse
     {
-        $data = $this->computeStats($request);
-        $rows   = $data['rows'];
-        $totals = $data['totals'];
+        $data    = $this->computeStats($request);
+        $rows    = $data['rows'];
+        $totals  = $data['totals'];
 
         $filename = 'adv_stats_' . date('Y-m-d_His') . '.csv';
         $headers = [
@@ -173,18 +176,48 @@ class OfferController extends Controller
             'Content-Disposition' => "attachment; filename=\"$filename\"",
         ];
 
-        return response()->stream(function() use ($rows, $totals) {
-            // BOM для корректного открытия в Excel
-            echo "\xEF\xBB\xBF";
+        $commission = (float) config('sf.commission', 0.20);
+
+        return response()->stream(function() use ($rows, $totals, $commission) {
+            echo "\xEF\xBB\xBF"; // BOM для Excel
             $out = fopen('php://output', 'w');
-            fputcsv($out, ['Дата', 'Клики (всего)', 'Клики (валидные)', 'Стоимость (₽)']);
+
+            // Заголовки CSV
+            fputcsv($out, ['Дата', 'Клики (всего)', 'Клики (валидные)', 'Расход, ₽', 'Выплата WM, ₽', 'Доход системы, ₽']);
+
             foreach ($rows as $r) {
-                fputcsv($out, [$r['date'], $r['clicks_total'], $r['clicks_valid'], number_format((float)$r['cost'], 2, '.', '')]);
+                $advCost       = (float) $r['cost'];                        // сумма s.cpc по валидным кликам
+                $systemRevenue = $advCost * $commission;
+                $wmPayout      = $advCost * (1 - $commission);
+
+                fputcsv($out, [
+                    $r['date'],
+                    (int) $r['clicks_total'],
+                    (int) $r['clicks_valid'],
+                    number_format($advCost, 2, '.', ''),
+                    number_format($wmPayout, 2, '.', ''),
+                    number_format($systemRevenue, 2, '.', ''),
+                ]);
             }
-            fputcsv($out, ['Итого', $totals['clicks_total'], $totals['clicks_valid'], number_format((float)$totals['cost'], 2, '.', '')]);
+
+            // Итого
+            $advCostTot       = (float) $totals['cost'];
+            $systemRevenueTot = $advCostTot * $commission;
+            $wmPayoutTot      = $advCostTot * (1 - $commission);
+
+            fputcsv($out, [
+                'Итого',
+                (int) $totals['clicks_total'],
+                (int) $totals['clicks_valid'],
+                number_format($advCostTot, 2, '.', ''),
+                number_format($wmPayoutTot, 2, '.', ''),
+                number_format($systemRevenueTot, 2, '.', ''),
+            ]);
+
             fclose($out);
         }, 200, $headers);
     }
+
 
     /** Проверка владения оффером текущим пользователем */
     private function authorizeOffer(Offer $offer): void
@@ -198,7 +231,7 @@ class OfferController extends Controller
      * Объединённая логика расчёта статистики для view и CSV.
      * Возвращает массив с ключами: offers, offerId, period, from, to, rows, totals.
      */
-    private function computeStats(Request $request): array
+   private function computeStats(Request $request): array
     {
         $user = $request->user();
 
@@ -229,7 +262,6 @@ class OfferController extends Controller
                     $from = Carbon::parse($minDate)->startOfDay();
                     $to   = Carbon::today()->endOfDay();
                 } else {
-                    // нет данных — оставим дефолт 7 дней
                     $from = Carbon::today()->subDays(6)->startOfDay();
                     $to   = Carbon::today()->endOfDay();
                 }
@@ -264,74 +296,41 @@ class OfferController extends Controller
 
         $offerId = $request->get('offer_id'); // null → все офферы
 
-        // Сводка по дням
-        $clicks = Click::query()
-            ->selectRaw('DATE(clicked_at) as d')
+        // Единый расчёт по дням:
+        // - clicks_total: COUNT(*)
+        // - clicks_valid: SUM(is_valid)
+        // - cost: SUM( s.cpc ) только по валидным кликам
+        $rows = DB::table('clicks as c')
+            ->join('subscriptions as s', 's.id', '=', 'c.subscription_id')
+            ->join('offers as o', 'o.id', '=', 's.offer_id')
+            ->whereBetween('c.clicked_at', [$from, $to])
+            ->where('o.advertiser_id', $user->id)
+            ->when($offerId, fn($q) => $q->where('o.id', (int)$offerId))
+            ->selectRaw('DATE(c.clicked_at) as d')
             ->selectRaw('COUNT(*) as clicks_total')
-            ->selectRaw('SUM(CASE WHEN is_valid=1 THEN 1 ELSE 0 END) as clicks_valid')
-            ->when($offerId, function($q) use ($offerId) {
-                $q->whereHas('subscription', fn($w) => $w->where('offer_id', $offerId));
-            }, function($q) use ($user) {
-                $q->whereHas('subscription.offer', fn($w) => $w->where('advertiser_id', $user->id));
-            })
-            ->whereBetween('clicked_at', [$from, $to])
+            ->selectRaw('SUM(CASE WHEN c.is_valid=1 THEN 1 ELSE 0 END) as clicks_valid')
+            ->selectRaw('SUM(CASE WHEN c.is_valid=1 THEN s.cpc ELSE 0 END) as cost')
             ->groupBy('d')
-            ->orderBy('d', 'asc')
+            ->orderBy('d','asc')
             ->get();
 
         $daily  = [];
-        $totals = ['clicks_total'=>0,'clicks_valid'=>0,'cost'=>0.0];
+        $totals = ['clicks_total'=>0, 'clicks_valid'=>0, 'cost'=>0.0];
 
-        if ($offerId) {
-            $offer = $offers->firstWhere('id', (int)$offerId);
-            $cpc = $offer?->cpc ? (float)$offer->cpc : 0.0;
-
-            foreach ($clicks as $row) {
-                $cost = (int)$row->clicks_valid * $cpc;
-                $daily[] = [
-                    'date'         => $row->d,
-                    'clicks_total' => (int)$row->clicks_total,
-                    'clicks_valid' => (int)$row->clicks_valid,
-                    'cost'         => $cost,
-                ];
-                $totals['clicks_total'] += (int)$row->clicks_total;
-                $totals['clicks_valid'] += (int)$row->clicks_valid;
-                $totals['cost']         += $cost;
-            }
-        } else {
-            // распределяем стоимость по дням с учётом CPC каждого оффера
-            $byDayOffer = Click::query()
-                ->selectRaw('DATE(clicked_at) as d, subscriptions.offer_id as oid')
-                ->selectRaw('SUM(CASE WHEN clicks.is_valid=1 THEN 1 ELSE 0 END) as valid_cnt')
-                ->join('subscriptions', 'subscriptions.id', '=', 'clicks.subscription_id')
-                ->join('offers', 'offers.id', '=', 'subscriptions.offer_id')
-                ->where('offers.advertiser_id', $user->id)
-                ->whereBetween('clicked_at', [$from, $to])
-                ->groupBy('d','oid')
-                ->get();
-
-            $cpcByOffer = $offers->pluck('cpc','id')->map(fn($v)=>(float)$v)->all();
-
-            foreach ($clicks as $r) {
-                $daily[$r->d] = [
-                    'date'         => $r->d,
-                    'clicks_total' => (int)$r->clicks_total,
-                    'clicks_valid' => (int)$r->clicks_valid,
-                    'cost'         => 0.0,
-                ];
-            }
-            foreach ($byDayOffer as $r) {
-                $cpc = $cpcByOffer[$r->oid] ?? 0.0;
-                $daily[$r->d]['cost'] += (int)$r->valid_cnt * $cpc;
-            }
-            foreach ($daily as $row) {
-                $totals['clicks_total'] += $row['clicks_total'];
-                $totals['clicks_valid'] += $row['clicks_valid'];
-                $totals['cost']         += $row['cost'];
-            }
-            $daily = array_values($daily);
-            usort($daily, fn($a,$b)=>strcmp($a['date'],$b['date']));
+        foreach ($rows as $r) {
+            $daily[] = [
+                'date'         => $r->d,
+                'clicks_total' => (int) $r->clicks_total,
+                'clicks_valid' => (int) $r->clicks_valid,
+                'cost'         => round((float) $r->cost, 2),
+            ];
+            $totals['clicks_total'] += (int) $r->clicks_total;
+            $totals['clicks_valid'] += (int) $r->clicks_valid;
+            $totals['cost']         += (float) $r->cost;
         }
+
+        // Финальное округление totals
+        $totals['cost'] = round($totals['cost'], 2);
 
         return [
             'offers'  => $offers,

@@ -27,7 +27,7 @@
                         <th class="p-2">ID</th>
                         <th class="p-2">Название</th>
                         <th class="p-2">Рекламодатель</th>
-                        <th class="p-2">CPC</th>
+                        <th class="p-2">Стоимость клика</th>
                         <th class="p-2">Активен</th>
                         <th class="p-2">Подписок</th>
                         <th class="p-2">Клики (всего)</th>

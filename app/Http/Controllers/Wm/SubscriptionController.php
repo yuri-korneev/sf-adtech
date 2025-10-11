@@ -17,17 +17,33 @@ class SubscriptionController extends Controller
         return view('wm.offers', compact('offers'));
     }
 
-    // Подписаться на оффер
+    // Подписаться на оффер (WM указывает свою ставку)
     public function subscribe(Request $request, Offer $offer)
     {
-        if (!$offer->is_active) abort(404);
+        if (!$offer->is_active) {
+            abort(404);
+        }
 
-        $sub = Subscription::firstOrCreate(
-            ['offer_id' => $offer->id, 'webmaster_id' => $request->user()->id],
-            ['cpc' => $offer->cpc, 'token' => Str::random(32), 'is_active' => true]
-        );
+        // 1) Валидируем "Мою стоимость клика" (в рублях)
+        $data = $request->validate([
+            'cpc' => ['required', 'numeric', 'min:0', 'max:1000000'],
+        ], [], ['cpc' => 'Моя стоимость клика']);
 
-        return redirect()->route('wm.subs.index')->with('status','Subscription ready');
+        // 2) Ищем/создаём подписку по связке WM×Offer
+        $sub = Subscription::firstOrNew([
+            'offer_id'     => $offer->id,
+            'webmaster_id' => $request->user()->id,
+        ]);
+
+        // 3) Обновляем ставку и активируем подписку
+        $sub->cpc       = $data['cpc'];                 // Моя стоимость клика (ставка WM)
+        $sub->is_active = true;
+        $sub->token     = $sub->token ?: Str::ulid();   // генерим токен, если не было
+        $sub->save();
+
+        return redirect()
+            ->route('wm.subs.index')
+            ->with('status', 'Подписка оформлена. Ваша стоимость клика: ' . number_format($sub->cpc, 2, ',', ' ') . ' ₽.');
     }
 
     // Мои подписки
@@ -38,5 +54,18 @@ class SubscriptionController extends Controller
             ->latest()->paginate(10);
 
         return view('wm.subs', compact('subs'));
+    }
+
+    // Отписаться (деактивация подписки)
+    public function unsubscribe(Request $request, int $subscriptionId)
+    {
+        $sub = Subscription::where('id', $subscriptionId)
+            ->where('webmaster_id', $request->user()->id)
+            ->firstOrFail();
+
+        $sub->is_active = false;
+        $sub->save();
+
+        return back()->with('status', 'Вы отписались от оффера. Подписка деактивирована.');
     }
 }

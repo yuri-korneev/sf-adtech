@@ -103,7 +103,7 @@
                     <thead class="border-b bg-gray-50">
                         <tr class="text-gray-700 text-sm">
                             <th class="p-3">Название</th>
-                            <th class="p-3">CPC (₽)</th>
+                            <th class="p-3">Стоимость клика (₽)</th>
                             <th class="p-3">Целевой URL</th>
                             <th class="p-3">Статус</th>
                             <th class="p-3">Темы</th>

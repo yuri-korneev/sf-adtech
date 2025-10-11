@@ -43,7 +43,7 @@
 
                     {{-- CPC --}}
                     <div>
-                        <label class="block text-sm text-gray-700 mb-1" for="cpc">CPC (₽)</label>
+                        <label class="block text-sm text-gray-700 mb-1" for="cpc">Стоиомсть клика (₽)</label>
                         <input id="cpc" name="cpc" type="number" step="0.0001" min="0" required
                                value="{{ old('cpc') }}"
                                class="w-full border rounded h-10 px-3 focus:outline-none focus:ring-2 focus:ring-gray-300">
