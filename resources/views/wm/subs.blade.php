@@ -2,14 +2,6 @@
     <x-slot name="header">
         <div class="flex items-center justify-between">
             <h2 class="font-semibold text-xl text-gray-800 leading-tight">Мои подписки</h2>
-            <a
-                href="{{ route('wm.offers') }}"
-                class="px-3 py-2 rounded-md shadow
-                       bg-white text-gray-900 border border-gray-300
-                       hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-300"
-            >
-                Найти офферы
-            </a>
         </div>
     </x-slot>
 

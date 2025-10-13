@@ -55,6 +55,8 @@ Route::middleware(['auth','role:webmaster'])
         // Отписаться — ВАЖНО: без повторного "wm." в name()
         Route::post('/subscriptions/{id}/unsubscribe', [SubscriptionController::class, 'unsubscribe'])
             ->name('unsubscribe');
+
+        Route::get('/', [\App\Http\Controllers\Wm\DashboardController::class, 'index'])->name('dashboard');
 });
 
 // B4: группа для рекламодателя
@@ -68,6 +70,8 @@ Route::middleware(['auth','role:advertiser'])->prefix('adv')->name('adv.')->grou
 
     Route::get('/stats', [\App\Http\Controllers\Adv\OfferController::class, 'stats'])->name('stats');
     Route::get('/stats/csv', [OfferController::class, 'statsCsv'])->name('stats.csv');
+
+    Route::get('/', [\App\Http\Controllers\Adv\DashboardController::class, 'index'])->name('dashboard');
 });
 
 // B5: группа для админа
@@ -82,6 +86,15 @@ Route::middleware(['auth','role:admin'])->prefix('admin')->name('admin.')->group
     Route::get('/clicks',                 [AdminController::class, 'clicks'])->name('clicks');
     Route::get('/clicks/stats',           [AdminController::class, 'clicksStats'])->name('clicks.stats');
     Route::get('/clicks/csv',             [AdminController::class, 'clicksCsv'])->name('clicks.csv');
+
+    // Доходы/расходы (JSON + CSV)
+    Route::get('/revenue/stats', [AdminController::class, 'revenueStats'])->name('revenue.stats');
+    Route::get('/revenue/csv',   [AdminController::class, 'revenueCsv'])->name('revenue.csv');
+
+    // Выданные ссылки (подписки WM→offer)
+    Route::get('/subscriptions',     [AdminController::class, 'subscriptions'])->name('subscriptions');
+    Route::get('/subscriptions/csv', [AdminController::class, 'subscriptionsCsv'])->name('subscriptions.csv');
+
 
     // Темы
     Route::resource('topics', \App\Http\Controllers\Admin\TopicController::class)

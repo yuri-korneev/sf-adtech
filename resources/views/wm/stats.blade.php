@@ -14,12 +14,15 @@
     @php
         $periodVal = $period ?? (request('period') ?? '30d');
         $offerId   = $offerId ?? request('offer_id');
+        $groupVal  = $group   ?? request('group','day'); // day|month|year
+        $commission = $commission ?? (float) config('sf.commission', 0.20);
+        $graphTitle = match($groupVal){ 'month' => 'График по месяцам', 'year' => 'График по годам', default => 'График по дням' };
     @endphp
 
     <div class="py-6 max-w-7xl mx-auto sm:px-6 lg:px-8">
         {{-- Фильтры --}}
         <div class="bg-white border rounded p-4">
-            <form method="GET" class="grid grid-cols-1 md:grid-cols-6 gap-4 items-end">
+            <form method="GET" class="grid grid-cols-1 md:grid-cols-7 gap-4 items-end">
                 <div class="flex flex-col md:col-span-2">
                     <label class="text-sm text-gray-600 mb-1">Оффер</label>
                     <select name="offer_id" class="border rounded h-10 px-3 pr-10">
@@ -31,6 +34,19 @@
                         @endforeach
                     </select>
                 </div>
+
+
+                {{-- Разрез --}}
+                <div class="flex flex-col">
+                    <label class="text-sm text-gray-600 mb-1">Разрез</label>
+                    <select name="group" class="border rounded h-10 px-3 pr-12">
+                        <option value="day"   {{ $groupVal==='day'?'selected':'' }}>День</option>
+                        <option value="month" {{ $groupVal==='month'?'selected':'' }}>Месяц</option>
+                        <option value="year"  {{ $groupVal==='year'?'selected':'' }}>Год</option>
+                    </select>
+                </div>
+
+
                 <div class="flex flex-col">
                     <label class="text-sm text-gray-600 mb-1">Период</label>
                     <select name="period" class="border rounded h-10 px-3 pr-12">
@@ -40,6 +56,7 @@
                         <option value="custom" {{ $periodVal==='custom'?'selected':'' }}>По дате</option>
                     </select>
                 </div>
+
                 <div class="flex flex-col">
                     <label class="text-sm text-gray-600 mb-1">С даты</label>
                     <input type="date" name="from" value="{{ optional($from)->toDateString() }}"
@@ -50,6 +67,7 @@
                     <input type="date" name="to" value="{{ optional($to)->toDateString() }}"
                            class="border rounded h-10 px-3">
                 </div>
+
                 <div class="self-end mt-2 md:mt-1 flex items-center gap-2">
                     <button class="h-10 px-4 rounded border bg-white hover:bg-gray-50">Применить</button>
                     @if(request()->query())
@@ -60,11 +78,14 @@
                     @endif
                 </div>
             </form>
+            <div class="text-xs text-gray-500 mt-2">
+                Текущая комиссия системы: {{ number_format($commission*100, 0) }}%
+            </div>
         </div>
 
         {{-- График --}}
         <div class="mt-6 bg-white border rounded p-4">
-            <div class="font-semibold mb-3">График по дням</div>
+            <div class="font-semibold mb-3">{{ $graphTitle }}</div>
             <canvas id="wmChart" height="120"></canvas>
         </div>
 
@@ -73,31 +94,51 @@
             <table class="w-full table-fixed text-left">
                 <thead class="border-b bg-gray-50">
                 <tr class="text-gray-700 text-sm">
-                    <th class="p-3">Дата</th>
+                    <th class="p-3">Период</th>
                     <th class="p-3 text-right tabular-nums">Клики (всего)</th>
                     <th class="p-3 text-right tabular-nums">Клики (валидные)</th>
+                    <th class="p-3 text-right tabular-nums">Доход WM</th>
                 </tr>
                 </thead>
                 <tbody>
                 @forelse($rows as $r)
                     <tr class="border-t">
                         <td class="p-3">
-                            {{ \Illuminate\Support\Carbon::parse($r['date'])->translatedFormat('d.m.Y') }}
+                            @php
+                                $dRaw = $r['date'] ?? '';
+                                $pretty = $dRaw;
+                                try {
+                                    if ($groupVal === 'day') {
+                                        $pretty = \Illuminate\Support\Carbon::parse($dRaw)->translatedFormat('d.m.Y');
+                                    } elseif ($groupVal === 'month') {
+                                        $pretty = \Illuminate\Support\Carbon::parse($dRaw)->translatedFormat('m.Y');
+                                    } elseif ($groupVal === 'year') {
+                                        $pretty = \Illuminate\Support\Carbon::parse($dRaw)->translatedFormat('Y');
+                                    }
+                                } catch (\Throwable $e) {}
+                            @endphp
+                            {{ $pretty }}
                         </td>
                         <td class="p-3 text-right tabular-nums">{{ $r['clicks_total'] }}</td>
                         <td class="p-3 text-right tabular-nums">{{ $r['clicks_valid'] }}</td>
+                        <td class="p-3 text-right tabular-nums">
+                            {{ number_format((float)($r['wm_revenue'] ?? 0), 2, ',', ' ') }}
+                        </td>
                     </tr>
                 @empty
                     <tr>
-                        <td class="p-4 text-center text-gray-600" colspan="3">Нет данных за выбранный период.</td>
+                        <td class="p-4 text-center text-gray-600" colspan="4">Нет данных за выбранный период.</td>
                     </tr>
                 @endforelse
                 </tbody>
                 <tfoot class="border-t font-semibold">
                 <tr>
                     <td class="p-3">Итого</td>
-                    <td class="p-3 text-right tabular-nums">{{ $totals['clicks_total'] }}</td>
-                    <td class="p-3 text-right tabular-nums">{{ $totals['clicks_valid'] }}</td>
+                    <td class="p-3 text-right tabular-nums">{{ $totals['clicks_total'] ?? 0 }}</td>
+                    <td class="p-3 text-right tabular-nums">{{ $totals['clicks_valid'] ?? 0 }}</td>
+                    <td class="p-3 text-right tabular-nums">
+                        {{ number_format((float)($totals['wm_revenue'] ?? 0), 2, ',', ' ') }}
+                    </td>
                 </tr>
                 </tfoot>
             </table>
@@ -117,14 +158,16 @@
             const labels = data.labels || [];
             const total  = data.series?.total || [];
             const valid  = data.series?.valid || [];
+            const revenue= data.series?.revenue || [];
 
             new Chart(el, {
                 type: 'line',
                 data: {
                     labels,
                     datasets: [
-                        { label: 'Клики (всего)',    data: total, borderWidth: 2, tension: 0.3, pointRadius: 2 },
-                        { label: 'Клики (валидные)', data: valid, borderWidth: 2, tension: 0.3, pointRadius: 2 },
+                        { label: 'Клики (всего)',    data: total,  borderWidth: 2, tension: 0.3, pointRadius: 2, yAxisID: 'y'  },
+                        { label: 'Клики (валидные)', data: valid,  borderWidth: 2, tension: 0.3, pointRadius: 2, yAxisID: 'y'  },
+                        { label: 'Доход WM',         data: revenue, borderWidth: 2, tension: 0.3, pointRadius: 2, yAxisID: 'y1' },
                     ]
                 },
                 options: {
@@ -133,7 +176,8 @@
                     plugins: { legend: { position: 'top' } },
                     scales: {
                         x: { grid: { display: true, color: 'rgba(0,0,0,0.08)' }, ticks: { color: '#6b7280' } },
-                        y: { beginAtZero: true, grid: { display: true, color: 'rgba(0,0,0,0.08)' }, ticks: { color: '#6b7280' } }
+                        y: { beginAtZero: true, grid: { display: true, color: 'rgba(0,0,0,0.08)' }, ticks: { color: '#6b7280' } },
+                        y1:{ beginAtZero: true, position: 'right', grid: { drawOnChartArea: false }, ticks: { color: '#6b7280' } }
                     }
                 }
             });

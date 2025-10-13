@@ -30,7 +30,19 @@ class LogClickJob implements ShouldQueue
             ->where('is_active', true)
             ->first();
 
-        if (!$sub) return;
+        if (!$sub) {
+            \App\Models\Click::create([
+                'subscription_id' => null,
+                'token'           => $this->token,
+                'ip'              => $this->ip,
+                'user_agent'      => $this->ua,
+                'referrer'        => $this->ref,
+                'clicked_at'      => $this->ts,   // у вас в Job уже есть timestamp
+                'is_valid'        => 0,
+                'invalid_reason'  => 'not_subscribed',
+            ]);
+            return;
+        }
 
         // 2) Дедупликация: тот же IP+UA+subscription в окне 30 сек — пропускаем
         $exists = Click::query()

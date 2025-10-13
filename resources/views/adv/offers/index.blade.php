@@ -17,18 +17,19 @@
         </div>
     </x-slot>
 
-    {{-- Локальные стили — центровка всего контента таблицы --}}
+    {{-- Локальные стили — выравнивание и ширины колонок --}}
     <style>
         #offersTable thead th { text-align: center !important; vertical-align: middle !important; }
         #offersTable tbody td { text-align: center !important; vertical-align: middle !important; }
 
-        /* ширины колонок (при желании отрегулируй проценты) */
-        #offersTable th:nth-child(1) { width: 24% !important; }
-        #offersTable th:nth-child(2) { width: 12% !important; }
-        #offersTable th:nth-child(3) { width: 32% !important; }
-        #offersTable th:nth-child(4) { width: 12% !important; }
-        #offersTable th:nth-child(5) { width: 12% !important; }
-        #offersTable th:nth-child(6) { width: 8%  !important; }
+        /* ширины 7 колонок */
+        #offersTable th:nth-child(1) { width: 22% !important; } /* Название */
+        #offersTable th:nth-child(2) { width: 12% !important; } /* CPC */
+        #offersTable th:nth-child(3) { width: 30% !important; } /* URL */
+        #offersTable th:nth-child(4) { width: 10% !important; } /* Статус */
+        #offersTable th:nth-child(5) { width: 12% !important; } /* Темы */
+        #offersTable th:nth-child(6) { width: 8%  !important; } /* Подписано */
+        #offersTable th:nth-child(7) { width: 6%  !important; } /* Действия */
 
         /* перенос длинных URL по центру */
         #offersTable td.url a {
@@ -107,6 +108,7 @@
                             <th class="p-3">Целевой URL</th>
                             <th class="p-3">Статус</th>
                             <th class="p-3">Темы</th>
+                            <th class="p-3">Подписано (активные)</th>
                             <th class="p-3">Действия</th>
                         </tr>
                     </thead>
@@ -119,9 +121,9 @@
                                     <div class="text-xs text-gray-500">ID: {{ $o->id }}</div>
                                 </td>
 
-                                {{-- CPC --}}
+                                {{-- CPC оффера (источник истины по ТЗ) --}}
                                 <td class="p-3 whitespace-nowrap">
-                                    {{ number_format((float)$o->cpc, 4, '.', ' ') }}
+                                    {{ number_format((float)$o->cpc, 4, ',', ' ') }}
                                 </td>
 
                                 {{-- URL --}}
@@ -152,6 +154,9 @@
                                     @endforelse
                                 </td>
 
+                                {{-- Подписки --}}
+                                <td class="p-3 text-right">{{ (int) $o->subscriptions_count }}</td>
+
                                 {{-- Действия --}}
                                 <td class="p-3 whitespace-nowrap">
                                     <a class="action-link" href="{{ route('adv.offers.edit', $o) }}">
@@ -172,7 +177,7 @@
                             </tr>
                         @empty
                             <tr>
-                                <td class="p-4 text-gray-600" colspan="6">
+                                <td class="p-4 text-gray-600" colspan="7">
                                     Офферов пока нет.
                                     <a class="text-indigo-700 underline hover:text-indigo-900"
                                        href="{{ route('adv.offers.create') }}">

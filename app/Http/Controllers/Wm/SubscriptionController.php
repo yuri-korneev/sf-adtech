@@ -10,53 +10,74 @@ use Illuminate\Support\Str;
 
 class SubscriptionController extends Controller
 {
-    // Активные офферы
+    /**
+     * Список доступных активных офферов для подписки (WM).
+     */
     public function offers()
     {
-        $offers = Offer::where('is_active', true)->latest()->paginate(10);
+        $offers = Offer::query()
+            ->where('is_active', true)
+            ->latest()
+            ->paginate(10);
+
         return view('wm.offers', compact('offers'));
     }
 
-    // Подписаться на оффер (WM указывает свою ставку)
+    /**
+     * Подписка на оффер.
+     * ВАЖНО: по ТЗ CPC задаёт рекламодатель (offers.cpc).
+     * Веб-мастер НЕ указывает свою цену — мы её не читаем и не сохраняем.
+     */
     public function subscribe(Request $request, Offer $offer)
     {
+        // оффер должен быть активен
         if (!$offer->is_active) {
             abort(404);
         }
 
-        // 1) Валидируем "Мою стоимость клика" (в рублях)
-        $data = $request->validate([
-            'cpc' => ['required', 'numeric', 'min:0', 'max:1000000'],
-        ], [], ['cpc' => 'Моя стоимость клика']);
-
-        // 2) Ищем/создаём подписку по связке WM×Offer
+        // создаём/находим подписку WM×Offer
         $sub = Subscription::firstOrNew([
             'offer_id'     => $offer->id,
             'webmaster_id' => $request->user()->id,
         ]);
 
-        // 3) Обновляем ставку и активируем подписку
-        $sub->cpc       = $data['cpc'];                 // Моя стоимость клика (ставка WM)
+        // активируем подписку и гарантируем наличие токена
         $sub->is_active = true;
-        $sub->token     = $sub->token ?: Str::ulid();   // генерим токен, если не было
+        $sub->token     = $sub->token ?: Str::ulid();
+        // ВАЖНО: НЕ трогаем/НЕ заполняем $sub->cpc — ставка берётся из offers.cpc
         $sub->save();
+
+        // Для наглядности можем подсказать экономику выплат WM
+        $commission  = (float) config('sf.commission', 0.20);
+        $payoutPerClick = $offer->cpc * (1 - $commission);
 
         return redirect()
             ->route('wm.subs.index')
-            ->with('status', 'Подписка оформлена. Ваша стоимость клика: ' . number_format($sub->cpc, 2, ',', ' ') . ' ₽.');
+            ->with(
+                'status',
+                'Подписка оформлена. Ставка оффера: ' .
+                number_format((float) $offer->cpc, 2, ',', ' ') . ' ₽. ' .
+                'Ваша выплата за валидный клик: ' .
+                number_format((float) $payoutPerClick, 2, ',', ' ') . ' ₽.'
+            );
     }
 
-    // Мои подписки
+    /**
+     * Мои подписки (WM).
+     */
     public function index(Request $request)
     {
-        $subs = Subscription::with('offer')
+        $subs = Subscription::with(['offer'])
             ->where('webmaster_id', $request->user()->id)
-            ->latest()->paginate(10);
+            ->latest()
+            ->paginate(10);
 
         return view('wm.subs', compact('subs'));
     }
 
-    // Отписаться (деактивация подписки)
+    /**
+     * Отписка (деактивация подписки).
+     */
     public function unsubscribe(Request $request, int $subscriptionId)
     {
         $sub = Subscription::where('id', $subscriptionId)

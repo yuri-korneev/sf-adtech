@@ -4,10 +4,17 @@
         <div class="flex items-center justify-between">
             <h2 class="font-semibold text-xl text-gray-800 leading-tight">Админ: клики</h2>
 
-            <a href="{{ route('admin.clicks.csv', request()->query()) }}"
-               class="px-3 py-2 rounded-md shadow bg-white text-gray-900 border border-gray-300 hover:bg-gray-50">
-                Экспорт CSV
-            </a>
+            <div class="flex gap-2">
+                {{-- УДАЛЕНО: кнопка «Выданные ссылки» --}}
+                <a href="{{ route('admin.revenue.csv', request()->query()) }}"
+                   class="px-3 py-2 rounded-md shadow bg-white text-gray-900 border border-gray-300 hover:bg-gray-50">
+                    Доходы (CSV)
+                </a>
+                <a href="{{ route('admin.clicks.csv', request()->query()) }}"
+                   class="px-3 py-2 rounded-md shadow bg-white text-gray-900 border border-gray-300 hover:bg-gray-50">
+                    Экспорт CSV
+                </a>
+            </div>
         </div>
     </x-slot>
 
@@ -20,17 +27,26 @@
     </style>
 
     @php
-        // Значения фильтров для селектов
         $periodVal = $period ?? (request('period') ?? '30d');
-        $validVal  = request('valid');
+        $validVal  = request('valid');           // для обратной совместимости
+        $typeVal   = request('type','all');      // all|valid|refused — приоритетный фильтр
+        $qVal      = request('q');               // поиск по токену
     @endphp
 
     <div class="py-6 max-w-7xl mx-auto sm:px-6 lg:px-8">
 
-        {{-- Фильтры — как у рекламодателя --}}
+        {{-- Фильтры --}}
         <div class="bg-white border rounded p-4">
-            <form method="GET" class="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
-                {{-- Статус --}}
+            <form method="GET" class="grid grid-cols-1 md:grid-cols-6 gap-4 items-end">
+                <div class="flex flex-col">
+                    <label class="text-sm text-gray-600 mb-1">Тип</label>
+                    <select name="type" class="border rounded h-10 px-3 pr-10">
+                        <option value="all"     {{ $typeVal==='all'?'selected':'' }}>Все</option>
+                        <option value="valid"   {{ $typeVal==='valid'?'selected':'' }}>Валидные</option>
+                        <option value="refused" {{ $typeVal==='refused'?'selected':'' }}>Отказы (не подписан)</option>
+                    </select>
+                </div>
+
                 <div class="flex flex-col">
                     <label class="text-sm text-gray-600 mb-1">Статус</label>
                     <select name="valid" class="border rounded h-10 px-3 pr-10">
@@ -40,7 +56,6 @@
                     </select>
                 </div>
 
-                {{-- Период --}}
                 <div class="flex flex-col">
                     <label class="text-sm text-gray-600 mb-1">Период</label>
                     <select name="period" class="border rounded h-10 px-3 pr-12">
@@ -51,22 +66,25 @@
                     </select>
                 </div>
 
-                {{-- С даты --}}
                 <div class="flex flex-col">
                     <label class="text-sm text-gray-600 mb-1">С даты</label>
                     <input type="date" name="from" value="{{ optional($from)->format('Y-m-d') }}"
                            class="border rounded h-10 px-3">
                 </div>
 
-                {{-- По дату --}}
                 <div class="flex flex-col">
                     <label class="text-sm text-gray-600 mb-1">По дату</label>
                     <input type="date" name="to" value="{{ optional($to)->format('Y-m-d') }}"
                            class="border rounded h-10 px-3">
                 </div>
 
-                {{-- Кнопки --}}
-                <div class="self-end mt-2 md:mt-1 flex items-center gap-2">
+                <div class="flex flex-col">
+                    <label class="text-sm text-gray-600 mb-1">Токен</label>
+                    <input type="text" name="q" value="{{ $qVal }}" placeholder="часть токена"
+                           class="border rounded h-10 px-3">
+                </div>
+
+                <div class="self-end mt-2 md:mt-1 flex items-center gap-2 md:col-span-6">
                     <button class="h-10 px-4 rounded border bg-white hover:bg-gray-50">
                         Применить
                     </button>
@@ -137,9 +155,13 @@
                         <td class="p-2 font-mono text-xs break-all">{{ $c->token }}</td>
                         <td class="p-2">{{ $c->is_valid ? 'Да' : 'Нет' }}</td>
                         <td class="p-2">{{ $c->invalid_reason }}</td>
-                        <td class="p-2 whitespace-nowrap tabular-nums">{{ optional($c->clicked_at)->format('d.m.Y H:i:s') }}</td>
+                        <td class="p-2 whitespace-nowrap tabular-nums">
+                            {{ optional($c->clicked_at ?? $c->created_at)->format('d.m.Y H:i:s') }}
+                        </td>
                         <td class="p-2">{{ $c->ip }}</td>
-                        <td class="p-2 ua-cell truncate" title="{{ $c->user_agent }}">{{ \Illuminate\Support\Str::limit($c->user_agent, 70) }}</td>
+                        <td class="p-2 ua-cell truncate" title="{{ $c->user_agent }}">
+                            {{ \Illuminate\Support\Str::limit($c->user_agent, 70) }}
+                        </td>
                     </tr>
                 @empty
                     <tr><td class="p-4 text-gray-600" colspan="9">Нет данных.</td></tr>
@@ -151,7 +173,7 @@
         <div class="mt-4">{{ $clicks->links() }}</div>
     </div>
 
-    {{-- Chart.js + загрузка агрегатов с /admin/clicks/stats (градуировка как у рекламодателя) --}}
+    {{-- Chart.js + загрузка агрегатов с /admin/clicks/stats --}}
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script>
     (function () {
@@ -195,19 +217,16 @@
           const invalid = data.series?.invalid || [];
           const refused = data.series?.refused || [];
 
-          // адаптируем Y под данные, сохраняя «градуировку»
           const maxY = Math.max(1, ...valid, ...invalid, ...refused);
           const yMax = maxY <= 10 ? 10 : Math.ceil(maxY * 1.1);
           baseLineOptions.scales.y.suggestedMax = yMax;
           baseLineOptions.scales.y.ticks.stepSize = Math.max(1, Math.round(yMax / 10));
 
-          // сводка
           document.getElementById('s-all').textContent     = (data.totals?.all     ?? 0).toLocaleString('ru-RU');
           document.getElementById('s-valid').textContent   = (data.totals?.valid   ?? 0).toLocaleString('ru-RU');
           document.getElementById('s-invalid').textContent = (data.totals?.invalid ?? 0).toLocaleString('ru-RU');
           document.getElementById('s-refused').textContent = (data.totals?.refused ?? 0).toLocaleString('ru-RU');
 
-          // линии
           const ctxLine = document.getElementById('chartClicksByDay');
           if (ctxLine) {
             new Chart(ctxLine, {
@@ -224,7 +243,6 @@
             });
           }
 
-          // пончик
           const ctxDonut = document.getElementById('chartShare');
           if (ctxDonut) {
             new Chart(ctxDonut, {

@@ -9,9 +9,7 @@ use App\Models\Topic;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Symfony\Component\HttpFoundation\StreamedResponse;
-
 use Illuminate\Support\Facades\DB;
-
 
 class OfferController extends Controller
 {
@@ -36,7 +34,11 @@ class OfferController extends Controller
                       ->orWhere('target_url', 'like', $like);
                 });
             })
-            ->with('topics:id,name')           // для колонки «Темы» без N+1
+            ->with('topics:id,name') // колонка «Темы» без N+1
+            ->withCount([
+                // активные подписки веб-мастеров на оффер
+                'subscriptions' => fn($w) => $w->where('is_active', true),
+            ])
             ->latest()
             ->paginate(10)
             ->withQueryString();
@@ -159,66 +161,92 @@ class OfferController extends Controller
     public function stats(Request $request)
     {
         $data = $this->computeStats($request);
-
         return view('adv.stats', $data);
     }
 
     /** CSV-выгрузка тех же данных — /adv/stats/csv */
-    public function statsCsv(Request $request): StreamedResponse
+   public function statsCsv(Request $request): StreamedResponse
     {
-        $data    = $this->computeStats($request);
-        $rows    = $data['rows'];
-        $totals  = $data['totals'];
-
-        $filename = 'adv_stats_' . date('Y-m-d_His') . '.csv';
-        $headers = [
-            'Content-Type'        => 'text/csv; charset=UTF-8',
-            'Content-Disposition' => "attachment; filename=\"$filename\"",
-        ];
-
+        $data       = $this->computeStats($request);
+        $rows       = $data['rows'];    // ['date','clicks_total','clicks_valid','cost']
+        $totals     = $data['totals'];  // ['clicks_total','clicks_valid','cost']
+        $group      = (string) $request->get('group', 'day'); // day|month|year
         $commission = (float) config('sf.commission', 0.20);
 
-        return response()->stream(function() use ($rows, $totals, $commission) {
-            echo "\xEF\xBB\xBF"; // BOM для Excel
+        // Разделитель полей
+        $delimiter = (string) config('sf.csv.delimiter', ';');
+
+        $filename = 'adv_stats_' . $group . '_' . date('Y-m-d_His') . '.csv';
+        $headers  = [
+            // Windows-1251 БЕЗ BOM — Excel откроет без артефактов
+            'Content-Type'        => 'text/csv; charset=Windows-1251',
+            'Content-Disposition' => "attachment; filename=\"$filename\"",
+            'Cache-Control'       => 'no-store, no-cache, must-revalidate, max-age=0',
+        ];
+
+        return response()->stream(function () use ($rows, $totals, $commission, $group, $delimiter) {
+            // Подсказка Excel про разделитель (BOM не печатаем)
+            echo "sep={$delimiter}\r\n";
             $out = fopen('php://output', 'w');
 
-            // Заголовки CSV
-            fputcsv($out, ['Дата', 'Клики (всего)', 'Клики (валидные)', 'Расход, ₽', 'Выплата WM, ₽', 'Доход системы, ₽']);
+            // helper: запись строки в CP1251
+            $write = function(array $fields) use ($out, $delimiter) {
+                $encoded = array_map(fn($v) => mb_convert_encoding((string)$v, 'Windows-1251', 'UTF-8'), $fields);
+                fputcsv($out, $encoded, $delimiter);
+            };
+
+            // Заголовок
+            $write([
+                'Период ('.$group.')',
+                'Клики (всего)',
+                'Клики (валидные)',
+                'Расход, руб.',        // ← было "Расход, ₽"
+                'Выплата WM, руб.',    // ← было "Выплата WM, ₽"
+                'Доход системы, руб.', // ← было "Доход системы, ₽"
+            ]);
+
 
             foreach ($rows as $r) {
-                $advCost       = (float) $r['cost'];                        // сумма s.cpc по валидным кликам
-                $systemRevenue = $advCost * $commission;
+                $advCost       = (float) ($r['cost'] ?? 0);
                 $wmPayout      = $advCost * (1 - $commission);
+                $systemRevenue = $advCost * $commission;
 
-                fputcsv($out, [
-                    $r['date'],
-                    (int) $r['clicks_total'],
-                    (int) $r['clicks_valid'],
-                    number_format($advCost, 2, '.', ''),
-                    number_format($wmPayout, 2, '.', ''),
-                    number_format($systemRevenue, 2, '.', ''),
+                // Формат «Период» как в таблице
+                $pretty = $r['date'];
+                try {
+                    if ($group === 'day')   { $pretty = Carbon::parse($r['date'])->translatedFormat('d.m.Y'); }
+                    if ($group === 'month') { $pretty = Carbon::parse($r['date'])->translatedFormat('m.Y'); }
+                    if ($group === 'year')  { $pretty = Carbon::parse($r['date'])->translatedFormat('Y'); }
+                } catch (\Throwable $e) {}
+
+                // Числа: запятая как десятичная, БЕЗ разделителя тысяч
+                $write([
+                    $pretty,
+                    (int) ($r['clicks_total'] ?? 0),
+                    (int) ($r['clicks_valid'] ?? 0),
+                    number_format($advCost,       2, ',', ''),
+                    number_format($wmPayout,      2, ',', ''),
+                    number_format($systemRevenue, 2, ',', ''),
                 ]);
             }
 
-            // Итого
-            $advCostTot       = (float) $totals['cost'];
-            $systemRevenueTot = $advCostTot * $commission;
+            // Итого — 1:1 со страницей
+            $advCostTot       = (float) ($totals['cost'] ?? 0);
             $wmPayoutTot      = $advCostTot * (1 - $commission);
+            $systemRevenueTot = $advCostTot * $commission;
 
-            fputcsv($out, [
+            $write([
                 'Итого',
-                (int) $totals['clicks_total'],
-                (int) $totals['clicks_valid'],
-                number_format($advCostTot, 2, '.', ''),
-                number_format($wmPayoutTot, 2, '.', ''),
-                number_format($systemRevenueTot, 2, '.', ''),
+                (int) ($totals['clicks_total'] ?? 0),
+                (int) ($totals['clicks_valid'] ?? 0),
+                number_format($advCostTot,       2, ',', ''),
+                number_format($wmPayoutTot,      2, ',', ''),
+                number_format($systemRevenueTot, 2, ',', ''),
             ]);
 
             fclose($out);
         }, 200, $headers);
     }
-
-
     /** Проверка владения оффером текущим пользователем */
     private function authorizeOffer(Offer $offer): void
     {
@@ -229,16 +257,24 @@ class OfferController extends Controller
 
     /**
      * Объединённая логика расчёта статистики для view и CSV.
-     * Возвращает массив с ключами: offers, offerId, period, from, to, rows, totals.
+     * Возвращает массив: offers, offerId, period, from, to, rows, totals, group.
      */
-   private function computeStats(Request $request): array
+    private function computeStats(Request $request): array
     {
         $user = $request->user();
 
-        // period: today | 7d (def) | 30d | all | custom
+        // period: today | 7d (def) | 30d | 1y | all | custom
         $period = (string) $request->get('period', '7d');
         $from = Carbon::today()->subDays(6)->startOfDay();
         $to   = Carbon::today()->endOfDay();
+
+        // Разрез: day|month|year
+        $group  = (string) $request->get('group', 'day');
+        $format = match ($group) {
+            'month' => '%Y-%m-01',
+            'year'  => '%Y-01-01',
+            default => '%Y-%m-%d',
+        };
 
         switch ($period) {
             case 'today':
@@ -251,8 +287,13 @@ class OfferController extends Controller
                 $to   = Carbon::today()->endOfDay();
                 break;
 
+            case '1y':
+                $from = Carbon::today()->subDays(364)->startOfDay();
+                $to   = Carbon::today()->endOfDay();
+                break;
+
             case 'all':
-                // все время — находим самый ранний клик по офферам этого рекламодателя
+                // всё время — находим самый ранний клик по офферам этого рекламодателя
                 $minDate = Click::query()
                     ->join('subscriptions','subscriptions.id','=','clicks.subscription_id')
                     ->join('offers','offers.id','=','subscriptions.offer_id')
@@ -296,20 +337,20 @@ class OfferController extends Controller
 
         $offerId = $request->get('offer_id'); // null → все офферы
 
-        // Единый расчёт по дням:
+        // Единый расчёт:
         // - clicks_total: COUNT(*)
         // - clicks_valid: SUM(is_valid)
-        // - cost: SUM( s.cpc ) только по валидным кликам
+        // - cost: SUM(o.cpc) по валидным кликам (ВАЖНО: именно o.cpc, как требует ТЗ)
         $rows = DB::table('clicks as c')
             ->join('subscriptions as s', 's.id', '=', 'c.subscription_id')
             ->join('offers as o', 'o.id', '=', 's.offer_id')
-            ->whereBetween('c.clicked_at', [$from, $to])
+            ->whereBetween(DB::raw('COALESCE(c.clicked_at, c.created_at)'), [$from, $to])
             ->where('o.advertiser_id', $user->id)
             ->when($offerId, fn($q) => $q->where('o.id', (int)$offerId))
-            ->selectRaw('DATE(c.clicked_at) as d')
+            ->selectRaw("DATE_FORMAT(COALESCE(c.clicked_at, c.created_at), ?) as d", [$format])
             ->selectRaw('COUNT(*) as clicks_total')
-            ->selectRaw('SUM(CASE WHEN c.is_valid=1 THEN 1 ELSE 0 END) as clicks_valid')
-            ->selectRaw('SUM(CASE WHEN c.is_valid=1 THEN s.cpc ELSE 0 END) as cost')
+            ->selectRaw('SUM(c.is_valid=1) as clicks_valid')
+            ->selectRaw('SUM(CASE WHEN c.is_valid=1 THEN o.cpc ELSE 0 END) as cost')
             ->groupBy('d')
             ->orderBy('d','asc')
             ->get();
@@ -340,6 +381,7 @@ class OfferController extends Controller
             'to'      => $to,
             'rows'    => $daily,
             'totals'  => $totals,
+            'group'   => $group,
         ];
     }
 }

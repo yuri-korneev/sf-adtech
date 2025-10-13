@@ -64,7 +64,7 @@ return [
     */
     'csv' => [
         'delimiter'      => env('CSV_DELIMITER', ';'),
-        'decimal_point'  => env('CSV_DECIMAL_POINT', '.'),
+        'decimal_point'  => env('CSV_DECIMAL_POINT', ','),
         'thousands_sep'  => env('CSV_THOUSANDS_SEP', ' '),
         'encoding'       => env('CSV_ENCODING', 'UTF-8'),
     ],

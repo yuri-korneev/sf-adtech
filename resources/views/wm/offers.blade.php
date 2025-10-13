@@ -1,7 +1,14 @@
+{{-- resources/views/wm/offers.blade.php --}}
 <x-app-layout>
     <x-slot name="header">
         <h2 class="font-semibold text-xl text-gray-800 leading-tight">Активные офферы</h2>
     </x-slot>
+
+    @php
+        // Комиссия системы (0..1). По умолчанию 20%.
+        $commission = (float) config('sf.commission', 0.20);
+        $wmPct = 1 - $commission;
+    @endphp
 
     <div class="py-6">
         <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
@@ -13,7 +20,7 @@
                 </div>
             @endif
 
-            {{-- Ошибки валидации (например, по полю cpc) --}}
+            {{-- Общие ошибки (если есть) --}}
             @if ($errors->any())
                 <div class="mb-4 rounded-md bg-red-50 border border-red-200 text-red-800 px-4 py-3">
                     <ul class="list-disc ml-6">
@@ -24,66 +31,72 @@
                 </div>
             @endif
 
-            <table class="w-full text-left border">
-                <thead>
-                    <tr>
-                        <th class="p-2">Название</th>
-                        <th class="p-2">Стоимость клика (оффер)</th>
-                        <th class="p-2">Целевая ссылка</th>
-                        <th class="p-2">Подписаться на оффер</th>
-                    </tr>
-                </thead>
-                <tbody>
-                @forelse($offers as $o)
-                    <tr class="border-t">
-                        <td class="p-2">{{ $o->name }}</td>
+            <div class="bg-white border rounded overflow-x-auto">
+                <table class="w-full text-left">
+                    <thead class="border-b bg-gray-50">
+                        <tr class="text-gray-700 text-sm">
+                            <th class="p-3">Название</th>
+                            <th class="p-3">Стоимость клика (₽)</th>
+                            <th class="p-3">Выплата WM за клик (₽)</th>
+                            <th class="p-3">Целевой URL</th>
+                            <th class="p-3 text-center">Действие</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    @forelse($offers as $o)
+                        @php
+                            $cpc = (float) $o->cpc;
+                            $wmPayout = $cpc * $wmPct;
+                        @endphp
+                        <tr class="border-t hover:bg-gray-50">
+                            {{-- Название --}}
+                            <td class="p-3 align-top">
+                                <div class="font-medium text-gray-900">{{ $o->name }}</div>
+                                <div class="text-xs text-gray-500">ID: {{ $o->id }}</div>
+                            </td>
 
-                        {{-- ставка оффера (для справки WM) --}}
-                        <td class="p-2">
-                            {{ number_format((float)$o->cpc, 2, ',', ' ') }} ₽
-                        </td>
+                            {{-- CPC оффера (источник истины по ТЗ) --}}
+                            <td class="p-3 whitespace-nowrap align-top">
+                                {{ number_format($cpc, 2, ',', ' ') }} ₽
+                            </td>
 
-                        <td class="p-2 truncate max-w-md">
-                            <a class="text-indigo-700 underline hover:text-indigo-800"
-                               href="{{ $o->target_url }}" target="_blank" rel="noopener">
-                                {{ $o->target_url }}
-                            </a>
-                        </td>
+                            {{-- Выплата WM за валидный клик --}}
+                            <td class="p-3 whitespace-nowrap align-top">
+                                {{ number_format($wmPayout, 2, ',', ' ') }} ₽
+                                <div class="text-xs text-gray-500">
+                                    = ставка × (1 − комиссия {{ (int)round($commission*100) }}%)
+                                </div>
+                            </td>
 
-                        <td class="p-2">
-                            {{-- Форма подписки WM со своей ставкой --}}
-                            <form method="POST" action="{{ route('wm.subscribe', $o) }}" class="flex items-center gap-2">
-                                @csrf
-                                <label for="cpc-{{ $o->id }}" class="text-sm text-gray-700 whitespace-nowrap">
-                                    Моя стоимость клика (₽)
-                                </label>
-                                <input
-                                    id="cpc-{{ $o->id }}"
-                                    name="cpc"
-                                    type="number"
-                                    step="0.01"
-                                    min="0"
-                                    required
-                                    class="w-36 px-2 py-1 rounded-md border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                                    value="{{ old('cpc') }}"
-                                >
-                                <button
-                                    class="px-3 py-1 rounded-md shadow
-                                           bg-white text-gray-900 border border-gray-300
-                                           hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-300"
-                                >
-                                    Подписаться
-                                </button>
-                            </form>
-                        </td>
-                    </tr>
-                @empty
-                    <tr>
-                        <td class="p-2 text-gray-600 italic" colspan="4">Активных офферов нет</td>
-                    </tr>
-                @endforelse
-                </tbody>
-            </table>
+                            {{-- URL --}}
+                            <td class="p-3 align-top">
+                                <a class="text-indigo-700 underline hover:text-indigo-900 break-words"
+                                   href="{{ $o->target_url }}" target="_blank" rel="noopener">
+                                    {{ $o->target_url }}
+                                </a>
+                            </td>
+
+                            {{-- Подписаться (без поля "моя ставка") --}}
+                            <td class="p-3 align-top text-center">
+                                <form method="POST" action="{{ route('wm.subscribe', $o) }}">
+                                    @csrf
+                                    <button
+                                        class="px-3 py-2 rounded-md shadow
+                                               bg-white text-gray-900 border border-gray-300
+                                               hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-300">
+                                        Подписаться
+                                    </button>
+                                </form>
+                            </td>
+                        </tr>
+                    @empty
+                        <tr>
+                            <td class="p-4 text-gray-600 italic" colspan="5">Активных офферов нет.</td>
+                        </tr>
+                    @endforelse
+                    </tbody>
+                </table>
+            </div>
 
             <div class="mt-4">{{ $offers->links() }}</div>
         </div>
