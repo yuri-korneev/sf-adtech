@@ -31,7 +31,7 @@ Route::middleware('auth')->group(function () {
 });
 
 /**
- * Пробные маршруты
+ * Пробные маршруты (оставим только в debug-режиме)
  */
 if (config('app.debug')) {
     Route::middleware(['auth','role:webmaster'])->get('/webmaster', fn () => 'Webmaster OK');
@@ -56,7 +56,7 @@ Route::middleware(['auth','role:webmaster'])
     ->prefix('wm')
     ->name('wm.')
     ->group(function () {
-        // главная страница раздела
+        // ЕДИНСТВЕННАЯ главная страница раздела
         Route::get('/', [WmDashboardController::class, 'index'])->name('dashboard');
 
         Route::get('/offers', [SubscriptionController::class, 'offers'])->name('offers');
@@ -80,7 +80,7 @@ Route::middleware(['auth','role:advertiser'])
     ->prefix('adv')
     ->name('adv.')
     ->group(function () {
-        // главная страница раздела
+        // ЕДИНСТВЕННАЯ главная страница раздела
         Route::get('/', [AdvDashboardController::class, 'index'])->name('dashboard');
 
         Route::get('/offers/stats', [AdvOfferController::class, 'offersStats'])->name('offers.stats');
@@ -93,7 +93,7 @@ Route::middleware(['auth','role:advertiser'])
         Route::get('/stats', [AdvOfferController::class, 'stats'])->name('stats');
         Route::get('/stats/csv', [AdvOfferController::class, 'statsCsv'])->name('stats.csv');
 
-        // имя без повторного "adv."
+        // ВАЖНО: имя без повторного "adv."
         Route::post('/offers/{offer}/status', [AdvOfferController::class, 'setStatus'])
             ->whereNumber('offer')
             ->name('offers.status');

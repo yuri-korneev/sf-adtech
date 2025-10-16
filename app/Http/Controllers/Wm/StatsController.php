@@ -256,7 +256,7 @@ class StatsController extends Controller
 
         $filename = 'wm_stats_' . $group . '_' . date('Y-m-d_His') . '.csv';
         $headers = [
-            // Windows-1251 БЕЗ BOM, чтобы Excel открыл без артефактов
+            // ВАЖНО: отдаём как Windows-1251 — Excel откроет без «абракадабры»
             'Content-Type'        => 'text/csv; charset=Windows-1251',
             'Content-Disposition' => "attachment; filename=\"$filename\"",
             'Cache-Control'       => 'no-store, no-cache, must-revalidate, max-age=0',

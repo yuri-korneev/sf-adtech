@@ -27,7 +27,8 @@ class AppServiceProvider extends ServiceProvider
         Carbon::setLocale('ru');
         Date::setLocale('ru');
 
-        // Часовой пояс проекта
+        // Если нужно — часовой пояс проекта
+        // (используй тот, который вам нужен по ТЗ: Europe/Sofia или Europe/Moscow)
         config(['app.timezone' => 'Europe/Sofia']);
         date_default_timezone_set(config('app.timezone', 'UTC'));
     }

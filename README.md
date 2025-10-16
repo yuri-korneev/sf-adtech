@@ -1,178 +1,236 @@
-# SF‑AdTech — трекер трафика (Laravel 12, PHP 8.3)
+# SF-AdTech — учебный трекер трафика на Laravel
 
-Учебный проект для демонстрации работы **трекера трафика** между рекламодателями (**Advertiser**) и веб‑мастерами (**Webmaster**). 
-Проект реализует офферы с CPC, подписки с уникальными токенами, публичный редиректор `/r/{token}`, логирование кликов (асинхронно через очереди), статистику (день/месяц/год) и CSV‑экспорты.
+Многорольное приложение (**Admin**, **Advertiser/Adv**, **Webmaster/WM**) для учёта переходов по партнёрским ссылкам, с редиректором `/r/{token}`, ролями и правами, статистикой по дням/месяцам/годам, экспортами CSV, очередями для логирования кликов и пометки редиректов. 
 
-## Быстрый обзор возможностей
-
-- **Webmaster**
-  - Просмотр активных офферов и **подписка** (получает персональный `token`).
-  - Список своих подписок и ссылка вида `/r/{token}`.
-  - **Статистика дохода** и кликов в разрезе *day / month / year*, **CSV**.
-
-- **Advertiser**
-  - **CRUD офферов**: название, **CPC**, `target_url`, темы, (де)активация.
-  - Просмотр числа подписчиков (WM) по каждому офферу.
-  - **Статистика расходов** по своим офферам (day/month/year), **CSV**.
-
-- **Admin**
-  - Пользователи (роль, активность), офферы, подписки.
-  - Клики (валид/невалид, «отказы»), **доход системы**.
-  - CSV‑выгрузки, фильтры, быстрые счётчики на дашборде.
-
-- **Редиректор** `/r/{token}`
-  - Проверяет валидность подписки и оффера, при ошибке — **404**.
-  - Логирует клик **асинхронно** (очереди), **сохраняет query‑строку**.
-  - Мгновенно делает `302` на `target_url` оффера.
-
-- **Канбан**
-  - Перетаскивание карточек офферов мышью (drag-and-drop) 
+> Технологии: **Laravel 12**, **PHP 8.3**, **MySQL 8.x**, **Blade + Tailwind**, очереди **database**.
 
 ---
 
-## Установка и запуск
+## Содержание
 
-1) Клонируйте проект и зайдите в папку `sf-adtech`  
-2) Установите PHP‑зависимости:
+- [Демо-возможности по ролям](#демо-возможности-по-ролям)
+- [Архитектура и ключевые модули](#архитектура-и-ключевые-модули)
+- [Быстрый старт (локально / Homestead)](#быстрый-старт-локально--homestead)
+- [Конфигурация `.env`](#конфигурация-env)
+- [Структура БД и сиды](#структура-бд-и-сиды)
+- [Редиректор `/r/{token}`: как работает](#редиректор-rtoken-как-работает)
+- [Статистика и экспорт CSV](#статистика-и-экспорт-csv)
+- [Безопасность](#безопасность)
+- [Кодстайл и утилиты](#кодстайл-и-утилиты)
+- [Чек-лист соответствия ТЗ](#чек-лист-соответствия-тз)
+- [Лицензия](#лицензия)
+
+---
+
+## Демо-возможности по ролям
+
+### Admin (`/admin`)
+- Управление пользователями (активация/деактивация).
+- Список офферов, темы (topics), подписки (выданные ссылки).
+- Сводка кликов и **разрезов** по дням/месяцам/годам, **CSV-экспорт**.
+- Контроль отказов (клик с неподписанного WM → 404).
+
+### Advertiser (`/adv`)
+- **Офферы (CRUD)**: имя, CPC, целевой URL, список тем (many-to-many), активность, статус.
+- **Подписчики** (веб-мастера) по каждому офферу.
+- Статистика расходов и кликов по дням/месяцам/годам, **CSV-экспорт**.
+- **Kanban**-представление статусов офферов.
+
+### Webmaster (`/wm`)
+- Список собственных подписок (офферы, на которые подписан).
+- **Подписаться** на оффер (зафиксировать свою ставку), получить **персональную ссылку**.
+- **Отписаться** от оффера.
+- Доходы и клики по дням/месяцам/годам, **CSV-экспорт**.
+
+**Демо-аккаунты для входа:**
+
+| Роль        | Email                  | Пароль   |
+|-------------|-------------------------|----------|
+| Admin       | admin@example.com       | secret123 |
+| Advertiser  | adv1@example.com         | secret123 |
+| Webmaster   | wm1@example.com          | secret123 |
+и т.д.
+
+---
+
+## Архитектура и ключевые модули
+
+- **MVC (Laravel)**
+  - **Модели:** `User`, `Offer`, `Topic`, `Subscription`, `Click`.
+  - **Контроллеры:**
+    - `Admin\AdminController`, `Admin\TopicController`
+    - `Adv\DashboardController`, `Adv\OfferController`
+    - `Wm\DashboardController`, `Wm\SubscriptionController`, `Wm\StatsController`
+    - `RedirectController` — публичный редиректор `/r/{token}`.
+- **Очереди / Jobs**
+  - `LogClickJob` — асинхронно логирует клик (ip, ua, referer/referrer, token).
+  - `MarkRedirectedJob` — идемпотентно проставляет `redirected_at` с учётом окна дедупликации.
+- **Конфиг проекта:** `config/sf.php`
+  - `commission` / `system_commission`
+  - `dedup_window_seconds` (по умолчанию 600 сек)
+  - лимиты статистики (период, max_days).
+- **Маршруты:** `routes/web.php`
+  - Группы для `admin`, `adv`, `wm` с middleware `auth` + `role:*`.
+  - Rate limiting для редиректора: `throttle:redirects` (на IP).
+- **Вёрстка:** Blade + Tailwind.
+
+---
+
+## Быстрый старт (локально / Homestead)
+
+### 1) Клонирование и зависимости
 ```bash
+git clone <repo-url> sf-adtech
+cd sf-adtech
 composer install
+npm install
 ```
-3) Создайте `.env` и сгенерируйте ключ:
+
+### 2) Конфиг `.env`
 ```bash
 cp .env.example .env
 php artisan key:generate
 ```
-4) Настройте БД в `.env` (MySQL 8.x) и очередь:
+
+Заполните секцию БД (MySQL 8.x) и URL проекта, например:
+```dotenv
+APP_URL=http://sf-adtech.test
 ```
+
+Для очередей:
+```dotenv
 QUEUE_CONNECTION=database
 ```
-5) Примените миграции и сидеры:
+
+**Homestead (рекомендуется):**
+- Добавьте сайт `sf-adtech.test` в `Homestead.yaml`, пробросьте папку проекта.
+- Выполняйте `php artisan` **изнутри** VM (`vagrant ssh`).
+
+### 3) Миграции, сиды, очереди, ассеты
 ```bash
 php artisan migrate --seed
-```
-6) Запустите обработчик очередей (нужен для логирования кликов):
-```bash
-php artisan queue:work
-```
-7) Откройте сайт: `http://localhost` (или ваш `APP_URL`).
-
-**Готовые пользователи (сидер):**
-- Admin: `admin@example.com` / `password`
-- Advertiser: `adv@example.com` / `password`
-- Webmaster: `wm@example.com` / `password`
-
----
-
-## Где что находится (карта проекта)
-
-- **Маршруты:** `routes/web.php`
-  - `/r/{token}` → `App\Http\Controllers\RedirectController`
-  - Группы `/wm`, `/adv`, `/admin` (доступ через middleware ролей)
-- **Роли и доступ:** `app/Http/Middleware/RoleMiddleware.php` (проверка `user.role`, `is_active`)
-- **Редиректор и очереди:**
-  - Контроллер: `app/Http/Controllers/RedirectController.php`
-  - Джобы: `app/Jobs/LogClickJob.php`, `app/Jobs/MarkRedirectedJob.php`
-  - Очереди: драйвер `database` (`jobs`), запуск `php artisan queue:work`
-- **Модели:** `app/Models/Offer.php`, `Subscription.php`, `Click.php`, `Topic.php`, `User.php`
-- **Статистика и финансы:** `app/Services/StatsService.php` (+ `Wm/StatsController.php`, `Adv/OfferController@stats`, `Admin/AdminController@revenueStats`)
-- **Представления (Blade):** `resources/views/{wm,adv,admin}/*.blade.php`
-- **Конфиг проекта:** `config/sf.php` (комиссия, окно дедупликации, лимиты, дефолтные периоды отчетов)
-
----
-
-## Бизнес‑логика 
-
-- **CPC и комиссия**: рекламодатель задаёт `offers.cpc`. Комиссия системы в `config/sf.php` (`SYSTEM_COMMISSION` в `.env`).  
-  Формулы:  
-  `wm_payout = cpc * (1 - commission)`, `system_revenue = cpc * commission`.
-- **Темы оффера**: справочник `topics` и связь `offer_topic`.
-- **Подписка WM**: при подписке создаётся/активируется запись `subscriptions` и генерируется `token` (ULID).  
-  Ссылку `/r/{token}` WM размещает у себя.
-- **Редиректор**: проверяет связку `token → subscription → offer`. Если всё ок — записывает задачу логирования клика и **сразу** редиректит на `target_url` оффера, добавляя исходную `?query` если была.
-- **Статистика**: странички для WM/Adv/Admin показывают клики и деньги в разрезе **день/месяц/год**; есть **CSV**.
-
----
-
-## Полезные команды
-
-- Сгенерировать тестовые клики:
-```bash
-php artisan clicks:generate 200 --days=14 --refused=25
-```
-- Запустить обработчик очередей:
-```bash
-php artisan queue:work
+php artisan queue:table && php artisan migrate   # если не создана таблица jobs
+php artisan queue:work                           # запустить воркер для кликов/редиректов
+npm run dev                                      # ассеты (во время разработки)
 ```
 
 ---
 
-## Линтеры и автоформатирование
+## Конфигурация `.env`
 
-Единообразный стиль кода ускоряет ревью и снижает шанс багов.
+Минимально важно:
+```dotenv
+APP_ENV=local
+APP_DEBUG=true
+APP_URL=http://sf-adtech.test
 
-### PHP (PHP_CodeSniffer: phpcs/phpcbf, профиль PSR-12)
-- Конфиг: `phpcs.xml` (в корне проекта).
-- Проверка:
+DB_CONNECTION=mysql
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_DATABASE=sfadtech
+DB_USERNAME=homestead
+DB_PASSWORD=secret
+
+QUEUE_CONNECTION=database
+SESSION_DRIVER=database
+```
+
+Параметры из `config/sf.php` можно вынести в `.env`:
+```dotenv
+SYSTEM_COMMISSION=0.20
+DEDUP_WINDOW_SECONDS=600
+STATS_DEFAULT_PERIOD=7d
+STATS_MAX_DAYS=365
+```
+
+---
+
+## Структура БД и сиды
+
+**Основные таблицы:**
+- `users` — роли `role` (`admin|adv|wm`), активность `is_active`.
+- `offers` — `advertiser_id`, `name`, `cpc`, `target_url`, `is_active`, `status`.
+- `topics` и `offer_topic` — связь офферов и тем (many-to-many).
+- `subscriptions` — `wm_id`, `offer_id`, `token`, `wm_cpc`, `is_active`, timestamps.
+- `clicks` — `subscription_id`, `token`, `ip`, `ua`, `referer`, `clicked_at`, `redirected_at`, `is_valid`, `invalid_reason`.
+
+**Сиды:**
+- `RoleAndUserSeeder` — три пользователя (admin/adv/wm), роли и активность.
+- `TopicsSeeder` — базовый набор тем.
+- (Опционально) сиды кликов для учебных графиков/отчётов.
+
+> SQL-дамп лежит в `database/dumps/…sql`.
+
+---
+
+## Редиректор `/r/{token}`: как работает
+
+1. **Валидация подписки и оффера**: токен принадлежит активной подписке WM на активный оффер с `target_url`. При несоответствии возвращается `404` и записывается причина в `clicks`.
+2. **Построение финального URL**: сохраняется исходная query-строка пользователя.
+3. **Асинхронное логирование** (`LogClickJob`): IP, UA, referer/referrer, token. Ошибки логирования не влияют на UX (best-effort).
+4. **Идемпотентная пометка `redirected_at`**:
+   - используется окно «свежести» из `config('sf.dedup_window_seconds')` (дефолт 600 секунд);
+   - помечается наиболее свежий неотмеченный клик; при гонках используется `MarkRedirectedJob`.
+5. **Редирект**: `302` на целевой URL.
+6. **Защита**: `RateLimiter` для `/r/{token}` (на IP).
+
+---
+
+## Статистика и экспорт CSV
+
+- Отчёты по дням / месяцам / годам с выбором диапазона (ограничение глубины предусмотрено).
+- Табличные представления и экспорт CSV во всех ролях.
+- В админ-отчёте метрики revenue учитывают `commission` из конфигурации.
+
+---
+
+## Безопасность
+
+- CSRF — маркеры во всех формах, стандартная защита Laravel.
+- XSS — экранирование шаблонов Blade по умолчанию.
+- SQL-инъекции — запросы через Eloquent/Query Builder.
+- Роли/доступ — middleware `auth` + `role:*`.
+- Rate limiting — для публичного маршрута редиректора.
+- Сессии — `SESSION_DRIVER=database`.
+
+---
+
+## Кодстайл и утилиты
+
+- PHP — PSR-12 (`phpcs`), автофиксы `phpcbf`.
+- JS — ESLint + Prettier.
+- Полезные команды:
   ```bash
-  composer exec phpcs -- app routes
+  composer run lint:php
+  composer run lint:js
+  composer test
+
+  php artisan route:list
+  php artisan tinker
+  php artisan queue:work
   ```
-- Автоисправление (где возможно):
+- При необходимости:
   ```bash
-  composer exec phpcbf -- app routes
+  php artisan session:table && php artisan migrate
   ```
-
-#### Рекомендованные записи в `composer.json`
-```json
-{
-  "scripts": {
-    "lint:php": "phpcs -- app routes",
-    "fix:php": "phpcbf -- app routes"
-  }
-}
-```
-Тогда:
-```bash
-composer run lint:php
-composer run fix:php
-```
-
-### JavaScript (ESLint)
-- Конфиги: `.eslintrc.json` и/или `eslint.config.mjs`.
-- Проверка:
-  ```bash
-  npx eslint resources/js
-  ```
-- Автопочинка:
-  ```bash
-  npx eslint resources/js --fix
-  ```
-
-
-### Дополнительно
-- **.editorconfig** — одинаковые отступы, кодировка, конечные пробелы.
-- **.gitattributes** — нормализация перевода строк (LF) и safelist бинарников.
 
 ---
 
-## Безопасность и производительность
+## Чек-лист соответствия ТЗ
 
-- Eloquent/Query Builder (защита от SQL‑инъекций).
-- CSRF на формах, Blade экранирует HTML (XSS).
-- Ограничение частоты для редиректора (RateLimiter), конфиг в `config/sf.php`.
-- Логирование кликов вынесено в **очереди** — редирект быстрый.
-
----
-
-## Как быстро проверить вручную
-
-1. Зайдите под **Advertiser**, создайте оффер (CPC, `target_url`, темы, активируйте).
-2. Зайдите под **Webmaster**, подпишитесь на оффер и возьмите ссылку `/r/{token}`.
-3. Откройте ссылку в браузере с любым `?utm=...` — вас должно перенаправить на `target_url` с сохранением query.
-4. Убедитесь, что запущен `queue:work`. Откройте **статистику** у WM и у Adv — клики и суммы появятся.
-5. В **Admin** проверьте клики, «отказы» и «доход системы».
+- Наличие трёх ролей: Admin, Advertiser, Webmaster, разграничение доступа по ролям.
+- Реализация публичного редиректора `/r/{token}` с валидацией подписки/оффера, логированием кликов, пометкой `redirected_at`, обработкой 404 и 302-редиректом.
+- Возможность подписки/отписки вебмастера на офферы и получение персональной ссылки (токена).
+- Наличие отчётов по дням/месяцам/годам и экспорта CSV в разделах всех ролей.
+- Учёт комиссии системы в админ-отчёте, конфигурирование комиссии через `config/sf.php`/`.env`.
+- Использование очередей для асинхронного логирования кликов и пометки редиректов.
+- Структура БД через миграции, наличие сидов для стартовых ролей/пользователей/тем.
+- Базовые меры безопасности (CSRF, XSS, защита от SQL-инъекций), rate limiting редиректора.
+- Наличие git-репозитория и инструкций по разворачиванию проекта.
 
 ---
 
 ## Лицензия
 
-Учебный проект. Используется Laravel и стандартные компоненты. 
+Свободно для учебного использования.  
+Автор: **Iurii Korneev**.

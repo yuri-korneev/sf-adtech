@@ -19,7 +19,7 @@ class Click extends Model
         'redirected_at' => 'datetime',
         'is_valid'      => 'boolean',
 
-        // Если колонок нет, вернётся null
+        // Эти поля можно оставить — если колонок нет, вернётся null (Laravel не упадёт)
         'adv_cost'      => 'decimal:4',
         'wm_payout'     => 'decimal:4',
     ];
@@ -31,7 +31,7 @@ class Click extends Model
     }
 
     /* -------------------------
-       "виртуальные" геттеры (через подписку)
+       УДОБНЫЕ "виртуальные" геттеры (через подписку)
        ------------------------- */
 
     // $click->offer

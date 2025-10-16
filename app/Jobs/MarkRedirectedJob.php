@@ -13,7 +13,7 @@ use Illuminate\Queue\SerializesModels;
 /**
  * Идемпотентная пометка redirected_at для клика по token.
  * Алгоритм:
- * 1) Пытаемся пометить новый клик в окне dedup.
+ * 1) Пытаемся пометить "свежий" клик в окне dedup.
  * 2) Если не нашли (воркер отработал поздно) — помечаем просто самый новый неотмеченный клик по token.
  */
 class MarkRedirectedJob implements ShouldQueue
@@ -32,6 +32,7 @@ class MarkRedirectedJob implements ShouldQueue
     {
         $this->token = $token;
         $this->ts    = $ts ?: CarbonImmutable::now();
+        // по желанию: $this->onQueue('clicks');
     }
 
     public function handle(): void
@@ -50,7 +51,7 @@ class MarkRedirectedJob implements ShouldQueue
                 ->update(['redirected_at' => $now]);
 
             if ($updated === 0) {
-                // 2) Помечаем просто самый новый неотмеченный клик по токену 
+                // 2) План Б: пометить просто самый новый неотмеченный клик по токену (надёжность отчётов)
                 $latest = Click::query()
                     ->where('token', $this->token)
                     ->whereNull('redirected_at')

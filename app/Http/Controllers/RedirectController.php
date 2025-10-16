@@ -12,7 +12,15 @@ use Illuminate\Support\Carbon;
 
 class RedirectController extends Controller
 {
-    /** Публичный редиректор: /r/{token} */
+    /**
+     * Публичный редиректор: /r/{token}
+     *
+     * Требования ТЗ:
+     * - 404 если подписка/оффер невалидны или нет target_url.
+     * - Лог клика — асинхронно (LogClickJob), ошибка джобы не должна ломать ответ.
+     * - Пометка redirected_at — сразу (best effort) + отложенной джобой.
+     * - 302 на целевой URL с прокидыванием query-строки.
+     */
     public function __invoke(Request $request, string $token)
     {
         // 1) ВАЛИДАЦИЯ ПОДПИСКИ/ОФФЕРА (строго до любой побочной логики)
@@ -42,18 +50,18 @@ class RedirectController extends Controller
         $referrer = (string) ($request->headers->get('referer') ?? '');
         try {
             LogClickJob::dispatch($token, $ip, $ua, $referrer)
-                ->onQueue('clicks');
+                ->onQueue('clicks'); // при желании можно убрать/переименовать очередь
         } catch (\Throwable $e) {
-            report($e);
+            report($e); // не ломаём пользовательский поток
         }
 
         // 4) ИДЕМПОТЕНТНАЯ ПОМЕТКА redirected_at (оптимистично)
-        // Дедупликация кликов: один апдейт redirected_at в пределах окна (optimistic, без блокировок)
+        //    Окно "свежести" клика берём из конфига, иначе 10 минут.
         $now    = Carbon::now();
         $window = (int) (config('sf.dedup_window_seconds') ?? 600); // 600s = 10 минут
 
         try {
-            // Помечаем один новый клик как редиректнутый
+            // Помечаем один "свежий" клик как редиректнутый
             $updated = Click::query()
                 ->where('token', $token)
                 ->where('subscription_id', $sub->id)
@@ -63,7 +71,7 @@ class RedirectController extends Controller
                 ->limit(1)
                 ->update(['redirected_at' => $now]);
 
-            // Если новой записи не нашли — создаем минимальную запись сразу,
+            // Если свежей записи не нашли, и вообще за окно ее нет — создадим минимальную запись сразу,
             // чтобы отчёты D/M/Y были консистентны (остальное досчитают джобы/отчёты).
             if ($updated === 0) {
                 $existsFresh = Click::query()
@@ -112,7 +120,7 @@ class RedirectController extends Controller
             report($e);
         }
 
-        // 6) Немедленный редирект 
+        // 6) Немедленный редирект (строго по ТЗ)
         return redirect()->away($final, 302);
     }
 }

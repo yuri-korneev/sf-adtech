@@ -203,7 +203,7 @@ class AdminController extends Controller
                 break;
         }
 
-        // Back-compat: поддержка ?valid=0|1 только при type=all. Новая схема — ?type=valid|invalid|all.
+        // Back-compat: valid=0|1 (если type=all)
         if (($valid = $request->get('valid')) !== null && $type === 'all') {
             if ($valid === '1') $q->where('is_valid', true);
             if ($valid === '0') $q->where('is_valid', false);
@@ -347,8 +347,8 @@ class AdminController extends Controller
                     $clicked ? $clicked->format('d.m.Y H:i:s') : '',
                     $c->redirected_at ? $c->redirected_at->format('d.m.Y H:i:s') : '',
                     (string) ($c->ip ?? ''),
-                    (string) ($c->user_agent ?? ''),
-                    (string) ($c->referer ?? ''),
+                    (string) ($c->user_agent ?? ''),   // Браузер
+                    (string) ($c->referer ?? ''),      // Реферер  ← тут
                 ]);
             }
 

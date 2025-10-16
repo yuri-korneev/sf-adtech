@@ -361,7 +361,7 @@ class OfferController extends Controller
 
         $offerId = $request->get('offer_id'); // null → все офферы
 
-        // Единый расчёт: стоимость из offers.cpc для ВАЛИДНЫХ кликов
+        // Единый расчёт (по ТЗ): стоимость из offers.cpc для ВАЛИДНЫХ кликов
         $rows = DB::table('clicks as c')
             ->join('subscriptions as s', 's.id', '=', 'c.subscription_id')
             ->join('offers as o', 'o.id', '=', 's.offer_id')

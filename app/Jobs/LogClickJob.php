@@ -52,6 +52,8 @@ class LogClickJob implements ShouldQueue
         $this->ref   = $ref;
         $this->ts    = $ts ?: CarbonImmutable::now();
 
+        // Если хочешь — сразу направляй эту джобу в нужную очередь:
+        // $this->onQueue('clicks');
     }
 
     public function handle(): void
@@ -86,7 +88,8 @@ class LogClickJob implements ShouldQueue
         $webmasterId    = $sub?->webmaster_id;
         $advertiserId   = $offer?->advertiser_id;
 
-
+        // Денежные поля — если бизнес-логика уже определена (например, adv_cost = offer->cpc, wm_payout = sub->rate),
+        // можно раскомментировать. Если нет — оставляем null (колонки в БД у тебя есть и допускают null).
         $advCost  = $isValid && isset($offer?->cpc) ? $offer->cpc : null;
         $wmPayout = $isValid && isset($sub?->rate)  ? $sub->rate  : null;
 
@@ -101,11 +104,12 @@ class LogClickJob implements ShouldQueue
             'ip'              => $ip,
             'user_agent'      => $ua,
 
-            // используем существующие в таблице колонки
+            // ВАЖНО: используем существующие в твоей таблице колонки
             'referer'         => $ref,
             'referrer'        => $ref,
 
             'clicked_at'      => $this->ts,       // CarbonImmutable → сохранится как datetime
+            // redirected_at — не трогаем здесь; помечается позднее отдельной логикой (если есть)
 
             'is_valid'        => $isValid ? 1 : 0,
             'invalid_reason'  => $isValid

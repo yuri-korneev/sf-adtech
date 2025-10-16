@@ -13,7 +13,7 @@ class TopicController extends Controller
         $q = trim((string)$request->get('q', ''));
 
         $topics = Topic::query()
-            ->withCount('offers') // счётчик привязанных офферов
+            ->withCount('offers') // добавили счётчик привязанных офферов
             ->when($q !== '', fn($qb) => $qb->where('name', 'like', '%' . $q . '%'))
             ->orderBy('name')
             ->paginate(15)
