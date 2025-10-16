@@ -42,12 +42,12 @@ class StatsService
         }
 
         return $q->selectRaw(
-                'DATE(c.clicked_at) d,
+            'DATE(c.clicked_at) d,
                  SUM(CASE WHEN c.is_valid=1 THEN s.cpc ELSE 0 END)             as adv_cost,
                  SUM(CASE WHEN c.is_valid=1 THEN s.cpc ELSE 0 END) * ?         as system_revenue,
                  SUM(CASE WHEN c.is_valid=1 THEN s.cpc ELSE 0 END) * (1 - ?)   as wm_payout',
-                [$this->commission, $this->commission]
-            )
+            [$this->commission, $this->commission]
+        )
             ->groupBy('d')
             ->orderBy('d')
             ->get()
@@ -63,12 +63,12 @@ class StatsService
     public function advTotals(?int $advId, Carbon $from, Carbon $to): array
     {
         $rows = $this->advDailyFinancials($advId, $from, $to);
-        $tot = ['adv_cost'=>0.0,'system_revenue'=>0.0,'wm_payout'=>0.0];
+        $tot = ['adv_cost' => 0.0,'system_revenue' => 0.0,'wm_payout' => 0.0];
         foreach ($rows as $r) {
             $tot['adv_cost']       += $r->adv_cost;
             $tot['system_revenue'] += $r->system_revenue;
             $tot['wm_payout']      += $r->wm_payout;
         }
-        return array_map(fn($v)=> round($v,2), $tot);
+        return array_map(fn($v)=> round($v, 2), $tot);
     }
 }

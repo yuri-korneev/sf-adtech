@@ -8,7 +8,7 @@ use Illuminate\Support\Str;
 
 class ClickFactory extends Factory
 {
-    protected $model = Click::class; // ← важно
+    protected $model = Click::class;
 
     public function definition(): array
     {

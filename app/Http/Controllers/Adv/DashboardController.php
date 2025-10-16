@@ -17,9 +17,9 @@ class DashboardController extends Controller
         $to   = now()->endOfDay();
 
         $clicksBase = Click::whereBetween(
-                DB::raw('COALESCE(clicks.clicked_at, clicks.created_at)'),
-                [$from, $to]
-            )
+            DB::raw('COALESCE(clicks.clicked_at, clicks.created_at)'),
+            [$from, $to]
+        )
             ->whereHas('subscription.offer', fn($q) => $q->where('advertiser_id', $user->id));
 
         $clicksAll   = (clone $clicksBase)->count();
@@ -52,4 +52,3 @@ class DashboardController extends Controller
         return view('adv.dashboard', compact('stats', 'lastClicks'));
     }
 }
-

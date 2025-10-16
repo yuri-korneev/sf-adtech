@@ -13,7 +13,7 @@ class GenerateClicks extends Command
         {--refused=25 : Процент отказов (из невалидных), 0..100}
     ';
 
-    protected $description = 'Сгенерировать тестовые клики (валид/невалид/отказы) без трогания существующих записей';
+    protected $description = 'Сгенерировать тестовые клики (валид/невалид/отказы) без хатрагивания существующих записей';
 
     public function handle(): int
     {
@@ -21,7 +21,7 @@ class GenerateClicks extends Command
         $days    = max(1, (int) $this->option('days'));
         $refused = min(100, max(0, (int) $this->option('refused')));
 
-        $this->info("Генерирую {$count} кликов за последние {$days} дн., отказов ~{$refused}% от невалидных...");
+        $this->info("Генерируем {$count} кликов за последние {$days} дни, отказов ~{$refused}% от невалидных...");
 
         // убедимся, что у модели включены фабрики
         if (! method_exists(Click::class, 'factory')) {
@@ -35,7 +35,7 @@ class GenerateClicks extends Command
                 $isValid = (bool) random_int(0, 1);
                 $invalidReason = null;
                 if (! $isValid) {
-                    // доля отказов среди НЕвалидных
+                    // доля отказов среди невалидных
                     if (random_int(1, 100) <= $refused) {
                         $invalidReason = 'not_subscribed';
                     }

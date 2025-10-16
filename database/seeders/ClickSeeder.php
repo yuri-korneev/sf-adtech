@@ -31,7 +31,7 @@ class ClickSeeder extends Seeder
             for ($i = 0; $i < $perDay; $i++) {
                 $isValid = (bool) random_int(0, 1);
                 $rows[] = [
-                    'subscription_id' => Arr::random($subIds),               // ← ключевая строка
+                    'subscription_id' => Arr::random($subIds),               
                     'token'           => Str::random(16),
                     'is_valid'        => $isValid,
                     'invalid_reason'  => $isValid ? null : (random_int(0, 3) === 0 ? 'not_subscribed' : null),

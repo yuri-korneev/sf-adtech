@@ -6,16 +6,15 @@ use App\Http\Controllers\Controller;
 use App\Models\Click;
 use App\Models\Offer;
 use App\Models\Subscription;
+use App\Models\Topic;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
-use App\Models\Topic;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Cache;
 
 class AdminController extends Controller
 {
-    /** Вспомогательно: диапазон дат по GET ?period= */
+    /** Вспомогательный метод: диапазон дат по GET ?period= */
     private function dateRange(Request $request): array
     {
         $period = $request->string('period')->toString() ?: '30d';
@@ -40,7 +39,9 @@ class AdminController extends Controller
                     try {
                         $from = Carbon::parse($fromStr)->startOfDay();
                         $to   = Carbon::parse($toStr)->endOfDay();
-                    } catch (\Throwable $e) { /* оставим дефолт */ }
+                    } catch (\Throwable $e) {
+                        // оставим дефолт
+                    }
                 }
                 break;
         }
@@ -59,9 +60,9 @@ class AdminController extends Controller
         $counts = [
             'users' => [
                 'total'      => User::count(),
-                'admin'      => User::where('role','admin')->count(),
-                'advertiser' => User::where('role','advertiser')->count(),
-                'webmaster'  => User::where('role','webmaster')->count(),
+                'admin'      => User::where('role', 'admin')->count(),
+                'advertiser' => User::where('role', 'advertiser')->count(),
+                'webmaster'  => User::where('role', 'webmaster')->count(),
                 'active'     => User::where('is_active', true)->count(),
             ],
             'offers' => [
@@ -70,18 +71,18 @@ class AdminController extends Controller
             ],
             'subs' => Subscription::count(),
             'clicks' => [
-                'total'   => Click::whereBetween('clicked_at', [$from, $to])->count(),
-                'valid'   => Click::whereBetween('clicked_at', [$from, $to])->where('is_valid', true)->count(),
-                'refused' => Click::whereBetween('clicked_at', [$from, $to])
+                'total'   => Click::whereBetween(DB::raw('COALESCE(clicked_at, created_at)'), [$from, $to])->count(),
+                'valid'   => Click::whereBetween(DB::raw('COALESCE(clicked_at, created_at)'), [$from, $to])->where('is_valid', true)->count(),
+                'refused' => Click::whereBetween(DB::raw('COALESCE(clicked_at, created_at)'), [$from, $to])
                                   ->where('is_valid', false)
-                                  ->where('invalid_reason', 'not_subscribed')
+                                  ->whereIn('invalid_reason', ['not_subscribed','inactive'])
                                   ->count(),
             ],
             'range' => [$from, $to, $period],
         ];
 
         $latestClicks = Click::with(['subscription.offer:id,name', 'subscription.webmaster:id,name'])
-            ->whereBetween('clicked_at', [$from, $to])
+            ->whereBetween(DB::raw('COALESCE(clicked_at, created_at)'), [$from, $to])
             ->latest('id')
             ->limit(10)
             ->get();
@@ -95,9 +96,9 @@ class AdminController extends Controller
         $q = User::query()->orderBy('id');
 
         if ($search = trim((string)$request->get('q'))) {
-            $q->where(function($w) use ($search) {
-                $w->where('email','like',"%{$search}%")
-                  ->orWhere('name','like',"%{$search}%");
+            $q->where(function ($w) use ($search) {
+                $w->where('email', 'like', "%{$search}%")
+                  ->orWhere('name', 'like', "%{$search}%");
             });
         }
         if ($role = $request->get('role')) {
@@ -112,7 +113,7 @@ class AdminController extends Controller
     /** POST /admin/users/{user}/toggle — вкл/выкл пользователя */
     public function toggleUser(User $user)
     {
-        $user->is_active = ! $user->is_active;
+        $user->is_active = ! (bool) $user->is_active;
         $user->save();
 
         return back()->with('status', 'Состояние пользователя обновлено');
@@ -132,13 +133,13 @@ class AdminController extends Controller
 
         // Поиск по названию/URL
         if ($search = trim((string)$request->get('q'))) {
-            $q->where(function($w) use ($search) {
-                $w->where('name','like',"%{$search}%")
-                  ->orWhere('target_url','like',"%{$search}%");
+            $q->where(function ($w) use ($search) {
+                $w->where('name', 'like', "%{$search}%")
+                  ->orWhere('target_url', 'like', "%{$search}%");
             });
         }
 
-        // Фильтр по активности
+        // Фильтр по активности (только is_active)
         if (null !== ($active = $request->get('active'))) {
             if ($active === '1' || $active === '0') {
                 $q->where('is_active', $active === '1');
@@ -152,9 +153,7 @@ class AdminController extends Controller
         }
 
         $offers = $q->paginate(15)->withQueryString();
-
-        // Справочник тем для дропдауна
-        $topics  = Topic::orderBy('name')->get(['id','name']);
+        $topics = Topic::orderBy('name')->get(['id','name']);
 
         return view('admin.offers', [
             'offers'  => $offers,
@@ -168,7 +167,7 @@ class AdminController extends Controller
     /** POST /admin/offers/{offer}/toggle — вкл/выкл оффер */
     public function toggleOffer(Offer $offer)
     {
-        $offer->is_active = ! $offer->is_active;
+        $offer->is_active = ! (bool) $offer->is_active;
         $offer->save();
 
         return back()->with('status', 'Состояние оффера обновлено');
@@ -186,25 +185,25 @@ class AdminController extends Controller
 
         // Поиск по токену
         if ($token = trim((string)$request->get('q'))) {
-            $q->where('token','like',"%{$token}%");
+            $q->where('token', 'like', "%{$token}%");
         }
 
-        // Новый приоритетный фильтр "type": all|valid|refused
+        // Фильтр type: all|valid|refused
         $type = $request->string('type', 'all')->toString();
         switch ($type) {
             case 'valid':
                 $q->where('is_valid', true);
                 break;
             case 'refused':
-                $q->where('is_valid', false)->where('invalid_reason', 'not_subscribed');
+                $q->where('is_valid', false)->whereIn('invalid_reason', ['not_subscribed','inactive']);
                 break;
             case 'all':
             default:
-                // без доп.условий
+                // нет доп.условий
                 break;
         }
 
-        // Back-compat: если передан явный valid=0|1, применим поверх type=all
+        // Back-compat: поддержка ?valid=0|1 только при type=all. Новая схема — ?type=valid|invalid|all.
         if (($valid = $request->get('valid')) !== null && $type === 'all') {
             if ($valid === '1') $q->where('is_valid', true);
             if ($valid === '0') $q->where('is_valid', false);
@@ -219,7 +218,6 @@ class AdminController extends Controller
     {
         [$from, $to, $period] = $this->dateRange($request);
 
-        // Приоритетный фильтр type
         $type = $request->string('type', 'all')->toString();
 
         $base = DB::table('clicks')
@@ -230,25 +228,24 @@ class AdminController extends Controller
                 $base->where('is_valid', 1);
                 break;
             case 'refused':
-                $base->where('is_valid', 0)->where('invalid_reason', 'not_subscribed');
+                $base->where('is_valid', 0)->whereIn('invalid_reason', ['not_subscribed','inactive']);
                 break;
             case 'all':
             default:
-                // без доп.условий
                 break;
         }
 
-        // Back-compat: valid=0|1 (если явно передан и type=all)
+        // Back-compat: valid=0|1 (если type=all)
         $valid = $request->string('valid')->value();
-        if ($valid === '1' && $type === 'all')      $base->where('is_valid', 1);
-        elseif ($valid === '0' && $type === 'all')  $base->where('is_valid', 0);
+        if ($valid === '1' && $type === 'all')       $base->where('is_valid', 1);
+        elseif ($valid === '0' && $type === 'all')   $base->where('is_valid', 0);
 
         $rows = (clone $base)
             ->selectRaw("
                 DATE(COALESCE(clicked_at, created_at)) AS d,
                 SUM(is_valid = 1)                                       AS valid_cnt,
                 SUM(is_valid = 0)                                       AS invalid_cnt,
-                SUM(is_valid = 0 AND invalid_reason = 'not_subscribed') AS refused_cnt
+                SUM(is_valid = 0 AND invalid_reason IN ('not_subscribed','inactive')) AS refused_cnt
             ")
             ->groupBy('d')
             ->orderBy('d')
@@ -265,7 +262,7 @@ class AdminController extends Controller
         $tot = (clone $base)->selectRaw("
             SUM(is_valid = 1)                                       AS valid,
             SUM(is_valid = 0)                                       AS invalid,
-            SUM(is_valid = 0 AND invalid_reason = 'not_subscribed') AS refused
+            SUM(is_valid = 0 AND invalid_reason IN ('not_subscribed','inactive')) AS refused
         ")->first();
 
         return response()->json([
@@ -281,7 +278,7 @@ class AdminController extends Controller
                 'refused' => (int) ($tot->refused ?? 0),
                 'all'     => (int) (($tot->valid ?? 0) + ($tot->invalid ?? 0)),
             ],
-        ])->header('Cache-Control','no-store, no-cache, must-revalidate, max-age=0');
+        ])->header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
     }
 
     /** GET /admin/clicks/csv — CSV выгрузка кликов */
@@ -294,26 +291,23 @@ class AdminController extends Controller
             ->whereBetween(DB::raw('COALESCE(clicked_at, created_at)'), [$from, $to])
             ->orderByDesc(DB::raw('COALESCE(clicked_at, created_at)'));
 
-        // Поиск по токену
         if ($token = trim((string)$request->get('q'))) {
-            $q->where('token','like',"%{$token}%");
+            $q->where('token', 'like', "%{$token}%");
         }
 
-        // Приоритетный фильтр type
         $type = $request->string('type', 'all')->toString();
         switch ($type) {
             case 'valid':
                 $q->where('is_valid', true);
                 break;
             case 'refused':
-                $q->where('is_valid', false)->where('invalid_reason', 'not_subscribed');
+                $q->where('is_valid', false)->whereIn('invalid_reason', ['not_subscribed','inactive']);
                 break;
             case 'all':
             default:
                 break;
         }
 
-        // Back-compat: valid=0|1, если type=all
         if (($valid = $request->get('valid')) !== null && $type === 'all') {
             if ($valid === '1') $q->where('is_valid', true);
             if ($valid === '0') $q->where('is_valid', false);
@@ -329,21 +323,20 @@ class AdminController extends Controller
             'Cache-Control'       => 'no-store, no-cache, must-revalidate, max-age=0',
         ];
 
-        return response()->stream(function() use ($clicks, $delimiter) {
-            // Подсказка Excel про разделитель (без BOM)
+        return response()->stream(function () use ($clicks, $delimiter) {
             echo "sep={$delimiter}\r\n";
             $out = fopen('php://output', 'w');
 
-            $write = function(array $fields) use ($out, $delimiter) {
+            $write = function (array $fields) use ($out, $delimiter) {
                 $encoded = array_map(fn($v) => mb_convert_encoding((string)$v, 'Windows-1251', 'UTF-8'), $fields);
                 fputcsv($out, $encoded, $delimiter);
             };
 
             // Заголовок
-            $write(['ID','Оффер','Веб-мастер','Токен','Валиден','Причина','Время','IP','Браузер']);
+            $write(['ID','Оффер','Веб-мастер','Токен','Валиден','Причина','Клик','Редирект','IP','Браузер','Реферер']);
 
             foreach ($clicks as $c) {
-                $dt = ($c->clicked_at ?? $c->created_at);
+                $clicked = ($c->clicked_at ?? $c->created_at);
                 $write([
                     (int) $c->id,
                     $c->subscription->offer->name ?? '',
@@ -351,21 +344,25 @@ class AdminController extends Controller
                     (string) $c->token,
                     $c->is_valid ? 'Да' : 'Нет',
                     (string) ($c->invalid_reason ?? ''),
-                    $dt ? $dt->format('d.m.Y H:i:s') : '',
+                    $clicked ? $clicked->format('d.m.Y H:i:s') : '',
+                    $c->redirected_at ? $c->redirected_at->format('d.m.Y H:i:s') : '',
                     (string) ($c->ip ?? ''),
                     (string) ($c->user_agent ?? ''),
+                    (string) ($c->referer ?? ''),
                 ]);
             }
 
             fclose($out);
         }, 200, $headers);
-}
+    }
+
+    /** GET /admin/revenue/stats — JSON для графиков выручки */
     public function revenueStats(Request $request)
     {
         [$from, $to, $period] = $this->dateRange($request);
 
         // Грануляция: day|month|year
-        $group = $request->string('group','day')->toString();
+        $group = $request->string('group', 'day')->toString();
         $format = match ($group) {
             'month' => '%Y-%m',
             'year'  => '%Y',
@@ -374,21 +371,18 @@ class AdminController extends Controller
 
         $commission = (float) config('sf.commission', 0.20);
 
-        // clicks ↔ subscriptions ↔ offers
         $base = DB::table('clicks as c')
             ->leftJoin('subscriptions as s', 's.id', '=', 'c.subscription_id')
             ->leftJoin('offers as o', 'o.id', '=', 's.offer_id')
             ->whereBetween(DB::raw('COALESCE(c.clicked_at, c.created_at)'), [$from, $to])
             ->where('c.is_valid', 1);
 
+        // Приоритет: значения в clicks; иначе — offers.cpc и комиссия.
         $rows = (clone $base)
-            ->selectRaw("
-                DATE_FORMAT(COALESCE(c.clicked_at, c.created_at), ?) as g,
-                COUNT(*)                                               as clicks_valid,
-                SUM(o.cpc)                                            as spend_total,
-                SUM(o.cpc * ?)                                        as system_revenue,
-                SUM(o.cpc * (1 - ?))                                  as wm_revenue
-            ", [$format, $commission, $commission])
+            ->selectRaw("DATE_FORMAT(COALESCE(c.clicked_at, c.created_at), ?) as g", [$format])
+            ->selectRaw("COUNT(*) AS clicks_valid")
+            ->selectRaw("SUM(COALESCE(c.adv_cost, o.cpc)) AS spend_total")
+            ->selectRaw("SUM(COALESCE(c.wm_payout, COALESCE(c.adv_cost, o.cpc) * (1 - ?))) AS wm_total", [$commission])
             ->groupBy('g')
             ->orderBy('g')
             ->get();
@@ -398,17 +392,14 @@ class AdminController extends Controller
             $labels[] = $r->g;
             $clicks[] = (int) $r->clicks_valid;
             $spend[]  = (float) $r->spend_total;
-            $sys[]    = (float) $r->system_revenue;
-            $wm[]     = (float) $r->wm_revenue;
+            $wm[]     = (float) $r->wm_total;
+            $sys[]    = max(0.0, (float)$r->spend_total - (float)$r->wm_total);
         }
 
         $tot = (clone $base)
-            ->selectRaw("
-                COUNT(*)                 as clicks_valid,
-                SUM(o.cpc)              as spend_total,
-                SUM(o.cpc * ?)          as system_revenue,
-                SUM(o.cpc * (1 - ?))    as wm_revenue
-            ", [$commission, $commission])
+            ->selectRaw("COUNT(*) AS clicks_valid")
+            ->selectRaw("SUM(COALESCE(c.adv_cost, o.cpc)) AS spend_total")
+            ->selectRaw("SUM(COALESCE(c.wm_payout, COALESCE(c.adv_cost, o.cpc) * (1 - ?))) AS wm_total", [$commission])
             ->first();
 
         return response()->json([
@@ -422,24 +413,25 @@ class AdminController extends Controller
             'totals' => [
                 'clicks' => (int) ($tot->clicks_valid ?? 0),
                 'spend'  => (float) ($tot->spend_total ?? 0.0),
-                'system' => (float) ($tot->system_revenue ?? 0.0),
-                'wm'     => (float) ($tot->wm_revenue ?? 0.0),
+                'system' => max(0.0, (float) (($tot->spend_total ?? 0.0) - ($tot->wm_total ?? 0.0))),
+                'wm'     => (float) ($tot->wm_total ?? 0.0),
             ],
             'group'  => $group,
             'period' => [$from, $to],
             'commission' => $commission,
-        ])->header('Cache-Control','no-store, no-cache, must-revalidate, max-age=0');
+        ])->header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
     }
 
+    /** GET /admin/revenue/csv — CSV выгрузка выручки */
     public function revenueCsv(Request $request)
     {
         [$from, $to, $period] = $this->dateRange($request);
 
         // Грануляция: day|month|year
-        $group = $request->string('group','day')->toString();
+        $group = $request->string('group', 'day')->toString();
         $format = match ($group) {
-            'month' => '%Y-%m-%d', // возьмём первое число месяца, потом красиво форматнём
-            'year'  => '%Y-%m-%d', // возьмём 01-01 года
+            'month' => '%Y-%m-01',
+            'year'  => '%Y-01-01',
             default => '%Y-%m-%d',
         };
 
@@ -453,8 +445,9 @@ class AdminController extends Controller
 
         $rows = (clone $base)
             ->selectRaw("DATE_FORMAT(COALESCE(c.clicked_at, c.created_at), ?) as g", [$format])
-            ->selectRaw("COUNT(*)                                    as clicks_valid")
-            ->selectRaw("SUM(o.cpc)                                 as spend_total")
+            ->selectRaw("COUNT(*) AS clicks_valid")
+            ->selectRaw("SUM(COALESCE(c.adv_cost, o.cpc)) AS spend_total")
+            ->selectRaw("SUM(COALESCE(c.wm_payout, COALESCE(c.adv_cost, o.cpc) * (1 - ?))) AS wm_total", [$commission])
             ->groupBy('g')
             ->orderBy('g')
             ->get();
@@ -467,44 +460,46 @@ class AdminController extends Controller
             'Cache-Control'       => 'no-store, no-cache, must-revalidate, max-age=0',
         ];
 
-        return response()->stream(function () use ($rows, $group, $commission, $delimiter) {
+        return response()->stream(function () use ($rows, $group, $delimiter) {
             echo "sep={$delimiter}\r\n";
             $out = fopen('php://output', 'w');
 
-            $write = function(array $fields) use ($out, $delimiter) {
+            $write = function (array $fields) use ($out, $delimiter) {
                 $encoded = array_map(fn($v) => mb_convert_encoding((string)$v, 'Windows-1251', 'UTF-8'), $fields);
                 fputcsv($out, $encoded, $delimiter);
             };
 
-            // Заголовок (руб. вместо символа ₽)
-            $write(['Период ('.$group.')','Клики (валидные)','Расход рекламодателей, руб.','Выплата WM, руб.','Доход системы, руб.']);
+            // Заголовок
+            $write(['Период (' . $group . ')','Клики (валидные)','Расход рекламодателей, руб.','Выплата WM, руб.','Доход системы, руб.']);
 
-            $totValid = 0; $totAdv = 0.0; $totWm = 0.0; $totSys = 0.0;
+            $totValid = 0;
+            $totAdv = 0.0;
+            $totWm  = 0.0;
+            $totSys = 0.0;
 
             foreach ($rows as $r) {
                 $adv  = (float) $r->spend_total;
-                $wm   = $adv * (1 - $commission);
-                $sys  = $adv * $commission;
+                $wm   = (float) $r->wm_total;
+                $sys  = max(0.0, $adv - $wm);
 
-                // Красивый период
+                // Форматируем период для отображения (дата/месяц/год)
                 $pretty = $r->g;
                 try {
                     if ($group === 'day') {
-                        $pretty = \Illuminate\Support\Carbon::parse($r->g)->translatedFormat('d.m.Y');
+                        $pretty = Carbon::parse($r->g)->translatedFormat('d.m.Y');
                     } elseif ($group === 'month') {
-                        // g — это YYYY-MM-DD (первый день месяца), выводим МЕСЯЦ.ГОД
-                        $pretty = \Illuminate\Support\Carbon::parse($r->g)->translatedFormat('m.Y');
+                        $pretty = Carbon::parse($r->g)->translatedFormat('m.Y');
                     } elseif ($group === 'year') {
-                        // g — это YYYY-01-01, выводим только ГОД
-                        $pretty = \Illuminate\Support\Carbon::parse($r->g)->translatedFormat('Y');
+                        $pretty = Carbon::parse($r->g)->translatedFormat('Y');
                     }
-                } catch (\Throwable $e) {}
+                } catch (\Throwable $e) {
+                }
 
                 $write([
                     $pretty,
                     (int) $r->clicks_valid,
-                    number_format($adv, 2, ',', ''), // запятая, без тысячных
-                    number_format($wm,  2, ',', ''),
+                    number_format($adv, 2, ',', ''),
+                    number_format($wm, 2, ',', ''),
                     number_format($sys, 2, ',', ''),
                 ]);
 
@@ -527,21 +522,23 @@ class AdminController extends Controller
         }, 200, $headers);
     }
 
-
+    /** GET /admin/subscriptions — список подписок */
     public function subscriptions(Request $request)
     {
         [$from, $to, $period] = $this->dateRange($request);
 
-        $q = \App\Models\Subscription::query()
+        $q = Subscription::query()
             ->with(['offer:id,name,advertiser_id', 'webmaster:id,name,email'])
             ->whereBetween(DB::raw('COALESCE(created_at, updated_at)'), [$from, $to])
             ->orderByDesc('id');
 
         if ($s = trim((string)$request->get('q'))) {
-            $q->where(function($w) use ($s) {
-                $w->where('token','like',"%{$s}%")
-                ->orWhereHas('offer', fn($wo)=>$wo->where('name','like',"%{$s}%"))
-                ->orWhereHas('webmaster', fn($wm)=>$wm->where('name','like',"%{$s}%")->orWhere('email','like',"%{$s}%"));
+            $q->where(function ($w) use ($s) {
+                $w->where('token', 'like', "%{$s}%")
+                  ->orWhereHas('offer', fn($wo) => $wo->where('name', 'like', "%{$s}%"))
+                  ->orWhereHas('webmaster', fn($wm) => $wm
+                      ->where('name', 'like', "%{$s}%")
+                      ->orWhere('email', 'like', "%{$s}%"));
             });
         }
         if (($active = $request->get('active')) !== null) {
@@ -562,21 +559,23 @@ class AdminController extends Controller
         ]);
     }
 
-   public function subscriptionsCsv(Request $request)
+    /** GET /admin/subscriptions/csv — CSV выгрузка подписок */
+    public function subscriptionsCsv(Request $request)
     {
         [$from, $to, $period] = $this->dateRange($request);
 
-        $q = \App\Models\Subscription::query()
+        $q = Subscription::query()
             ->with(['offer:id,name,advertiser_id', 'webmaster:id,name,email'])
             ->whereBetween(DB::raw('COALESCE(created_at, updated_at)'), [$from, $to])
             ->orderByDesc('id');
 
         if ($s = trim((string)$request->get('q'))) {
-            $q->where(function($w) use ($s) {
-                $w->where('token','like',"%{$s}%")
-                ->orWhereHas('offer', fn($wo)=>$wo->where('name','like',"%{$s}%"))
-                ->orWhereHas('webmaster', fn($wm)=>$wm->where('name','like',"%{$s}%")
-                                                    ->orWhere('email','like',"%{$s}%"));
+            $q->where(function ($w) use ($s) {
+                $w->where('token', 'like', "%{$s}%")
+                  ->orWhereHas('offer', fn($wo) => $wo->where('name', 'like', "%{$s}%"))
+                  ->orWhereHas('webmaster', fn($wm) => $wm
+                      ->where('name', 'like', "%{$s}%")
+                      ->orWhere('email', 'like', "%{$s}%"));
             });
         }
         if (($active = $request->get('active')) !== null) {
@@ -595,24 +594,23 @@ class AdminController extends Controller
             'Cache-Control'       => 'no-store, no-cache, must-revalidate, max-age=0',
         ];
 
-        return response()->stream(function() use ($rows, $delimiter) {
-            // Первая строка подсказывает Excel разделитель (без BOM!)
+        return response()->stream(function () use ($rows, $delimiter) {
             echo "sep={$delimiter}\r\n";
             $out = fopen('php://output', 'w');
 
-            $write = function(array $fields) use ($out, $delimiter) {
+            $write = function (array $fields) use ($out, $delimiter) {
                 $encoded = array_map(fn($v) => mb_convert_encoding((string)$v, 'Windows-1251', 'UTF-8'), $fields);
                 fputcsv($out, $encoded, $delimiter);
             };
 
-            // Заголовки (ровно как на странице)
             $write(['ID','Токен','Активна','Оффер','Вебмастер','Email','Создано','Обновлено']);
 
             foreach ($rows as $r) {
+                $flag = (bool) $r->is_active;
                 $write([
                     (int) $r->id,
                     (string) $r->token,
-                    $r->is_active ? 'Да' : 'Нет',
+                    $flag ? 'Да' : 'Нет',
                     $r->offer->name ?? '',
                     $r->webmaster->name ?? '',
                     $r->webmaster->email ?? '',
@@ -624,7 +622,4 @@ class AdminController extends Controller
             fclose($out);
         }, 200, $headers);
     }
-
-
-
 }

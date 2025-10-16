@@ -41,7 +41,7 @@ class StatsController extends Controller
                     try {
                         $from = Carbon::parse($fromStr)->startOfDay();
                         $to   = Carbon::parse($toStr)->endOfDay();
-                    } catch (\Throwable) {
+                    } catch (\Throwable $e) {
                         // игнорируем парсинг-ошибку, оставляем дефолт
                     }
                 }
@@ -77,9 +77,9 @@ class StatsController extends Controller
 
         $offerId = $request->get('offer_id');
 
-        // Собираем id подписок, по которым считаем статистику (опционально фильтруем по offer_id)
+        // id подписок (с учётом фильтра по офферу)
         $subIds = Subscription::where('webmaster_id', $user->id)
-            ->when($offerId, fn($q) => $q->where('offer_id', $offerId))
+            ->when($offerId, fn($q) => $q->where('offer_id', (int)$offerId))
             ->pluck('id')->all();
 
         // База: клики по нужным подпискам в выбранный период
@@ -94,8 +94,14 @@ class StatsController extends Controller
             ->selectRaw("DATE_FORMAT(COALESCE(c.clicked_at, c.created_at), ?) AS d", [$format])
             ->selectRaw("COUNT(*) AS clicks_total")
             ->selectRaw("SUM(c.is_valid = 1) AS clicks_valid")
-            // Доход WM = валидные клики * offer.cpc * (1 - commission)
-            ->selectRaw("SUM(CASE WHEN c.is_valid = 1 THEN o.cpc * (1 - ?) ELSE 0 END) AS wm_revenue", [$commission])
+            ->selectRaw("
+                SUM(
+                    COALESCE(
+                        c.wm_payout,
+                        COALESCE(c.adv_cost, o.cpc) * (1 - ?)
+                    ) * (c.is_valid = 1)
+                ) AS wm_revenue
+            ", [$commission])
             ->groupBy('d')
             ->orderBy('d')
             ->get()
@@ -111,7 +117,14 @@ class StatsController extends Controller
         $totalsRow = (clone $base)
             ->selectRaw("COUNT(*) AS clicks_total")
             ->selectRaw("SUM(c.is_valid = 1) AS clicks_valid")
-            ->selectRaw("SUM(CASE WHEN c.is_valid = 1 THEN o.cpc * (1 - ?) ELSE 0 END) AS wm_revenue", [$commission])
+            ->selectRaw("
+                SUM(
+                    COALESCE(
+                        c.wm_payout,
+                        COALESCE(c.adv_cost, o.cpc) * (1 - ?)
+                    ) * (c.is_valid = 1)
+                ) AS wm_revenue
+            ", [$commission])
             ->first();
 
         $totals = [
@@ -121,15 +134,15 @@ class StatsController extends Controller
         ];
 
         return view('wm.stats', [
-            'offers'    => $offers,
-            'offerId'   => $offerId,
-            'rows'      => $rows,
-            'totals'    => $totals,
-            'period'    => $period,
-            'from'      => $from,
-            'to'        => $to,
-            'group'     => $group,
-            'commission'=> $commission,
+            'offers'     => $offers,
+            'offerId'    => $offerId,
+            'rows'       => $rows,
+            'totals'     => $totals,
+            'period'     => $period,
+            'from'       => $from,
+            'to'         => $to,
+            'group'      => $group,
+            'commission' => $commission,
         ]);
     }
 
@@ -152,7 +165,7 @@ class StatsController extends Controller
         $offerId = $request->get('offer_id');
 
         $subIds = Subscription::where('webmaster_id', $user->id)
-            ->when($offerId, fn($q) => $q->where('offer_id', $offerId))
+            ->when($offerId, fn($q) => $q->where('offer_id', (int)$offerId))
             ->pluck('id')->all();
 
         $rows = DB::table('clicks as c')
@@ -163,7 +176,14 @@ class StatsController extends Controller
             ->selectRaw("DATE_FORMAT(COALESCE(c.clicked_at, c.created_at), ?) AS d", [$format])
             ->selectRaw("COUNT(*) AS clicks_total")
             ->selectRaw("SUM(c.is_valid = 1) AS clicks_valid")
-            ->selectRaw("SUM(CASE WHEN c.is_valid = 1 THEN o.cpc * (1 - ?) ELSE 0 END) AS wm_revenue", [$commission])
+            ->selectRaw("
+                SUM(
+                    COALESCE(
+                        c.wm_payout,
+                        COALESCE(c.adv_cost, o.cpc) * (1 - ?)
+                    ) * (c.is_valid = 1)
+                ) AS wm_revenue
+            ", [$commission])
             ->groupBy('d')
             ->orderBy('d')
             ->get();
@@ -171,7 +191,7 @@ class StatsController extends Controller
         $labels = [];
         $total  = [];
         $valid  = [];
-        $revenue= [];
+        $revenue = [];
         foreach ($rows as $r) {
             $labels[]  = $r->d;
             $total[]   = (int) $r->clicks_total;
@@ -186,7 +206,7 @@ class StatsController extends Controller
                 'valid'   => $valid,
                 'revenue' => $revenue,
             ],
-        ])->header('Cache-Control','no-store, no-cache, must-revalidate, max-age=0');
+        ])->header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
     }
 
     /**
@@ -194,103 +214,111 @@ class StatsController extends Controller
      * Разрез: day | month | year
      */
     public function statsCsv(Request $request)
-{
-    $group  = (string) $request->get('group', 'day'); // day|month|year
-    $format = match ($group) {
-        'month' => '%Y-%m-01',
-        'year'  => '%Y-01-01',
-        default => '%Y-%m-%d',
-    };
-    $commission = (float) config('sf.commission', 0.20);
-
-    [$from, $to] = $this->dateRange($request);
-    $user = Auth::user();
-    $offerId = $request->get('offer_id');
-
-    $subIds = Subscription::where('webmaster_id', $user->id)
-        ->when($offerId, fn($q) => $q->where('offer_id', $offerId))
-        ->pluck('id')->all();
-
-    $rows = DB::table('clicks as c')
-        ->join('subscriptions as s', 's.id', '=', 'c.subscription_id')
-        ->join('offers as o', 'o.id', '=', 's.offer_id')
-        ->whereIn('c.subscription_id', $subIds ?: [0])
-        ->whereBetween(DB::raw('COALESCE(c.clicked_at, c.created_at)'), [$from, $to])
-        ->selectRaw("DATE_FORMAT(COALESCE(c.clicked_at, c.created_at), ?) AS d", [$format])
-        ->selectRaw("COUNT(*) AS clicks_total")
-        ->selectRaw("SUM(c.is_valid = 1) AS clicks_valid")
-        ->selectRaw("SUM(CASE WHEN c.is_valid = 1 THEN o.cpc * (1 - ?) ELSE 0 END) AS wm_revenue", [$commission])
-        ->groupBy('d')
-        ->orderBy('d')
-        ->get();
-
-    // Разделитель полей
-    $delimiter = (string) config('sf.csv.delimiter', ';');
-
-    $filename = 'wm_stats_' . $group . '_' . date('Y-m-d_His') . '.csv';
-    $headers = [
-        // ВАЖНО: отдаем как Windows-1251 — Excel откроет без «абракадабры»
-        'Content-Type'        => 'text/csv; charset=Windows-1251',
-        'Content-Disposition' => "attachment; filename=\"$filename\"",
-        'Cache-Control'       => 'no-store, no-cache, must-revalidate, max-age=0',
-    ];
-
-    // Итоги
-    $totClicks = 0; $totValid = 0; $totRevenue = 0.0;
-    foreach ($rows as $r) {
-        $totClicks  += (int) $r->clicks_total;
-        $totValid   += (int) $r->clicks_valid;
-        $totRevenue += (float) $r->wm_revenue;
-    }
-
-    return response()->stream(function() use ($rows, $group, $delimiter, $totClicks, $totValid, $totRevenue) {
-        // НЕ выводим BOM. Сразу даём подсказку Excel про разделитель:
-        echo "sep={$delimiter}\r\n";
-
-        $out = fopen('php://output', 'w');
-
-        // хелпер для кодирования строки в CP1251 перед записью
-        $write = function(array $fields) use ($out, $delimiter) {
-            // конвертируем каждое поле из UTF-8 в Windows-1251
-            $encoded = array_map(fn($v) => mb_convert_encoding((string)$v, 'Windows-1251', 'UTF-8'), $fields);
-            fputcsv($out, $encoded, $delimiter);
+    {
+        $group  = (string) $request->get('group', 'day'); // day|month|year
+        $format = match ($group) {
+            'month' => '%Y-%m-01',
+            'year'  => '%Y-01-01',
+            default => '%Y-%m-%d',
         };
+        $commission = (float) config('sf.commission', 0.20);
 
-        // Заголовки
-        $write(['Период ('.$group.')','Клики (всего)','Клики (валидные)','Доход WM']);
+        [$from, $to] = $this->dateRange($request);
+        $user = Auth::user();
+        $offerId = $request->get('offer_id');
 
+        $subIds = Subscription::where('webmaster_id', $user->id)
+            ->when($offerId, fn($q) => $q->where('offer_id', (int)$offerId))
+            ->pluck('id')->all();
+
+        $rows = DB::table('clicks as c')
+            ->join('subscriptions as s', 's.id', '=', 'c.subscription_id')
+            ->join('offers as o', 'o.id', '=', 's.offer_id')
+            ->whereIn('c.subscription_id', $subIds ?: [0])
+            ->whereBetween(DB::raw('COALESCE(c.clicked_at, c.created_at)'), [$from, $to])
+            ->selectRaw("DATE_FORMAT(COALESCE(c.clicked_at, c.created_at), ?) AS d", [$format])
+            ->selectRaw("COUNT(*) AS clicks_total")
+            ->selectRaw("SUM(c.is_valid = 1) AS clicks_valid")
+            ->selectRaw("
+                SUM(
+                    COALESCE(
+                        c.wm_payout,
+                        COALESCE(c.adv_cost, o.cpc) * (1 - ?)
+                    ) * (c.is_valid = 1)
+                ) AS wm_revenue
+            ", [$commission])
+            ->groupBy('d')
+            ->orderBy('d')
+            ->get();
+
+        // Разделитель полей
+        $delimiter = (string) config('sf.csv.delimiter', ';');
+
+        $filename = 'wm_stats_' . $group . '_' . date('Y-m-d_His') . '.csv';
+        $headers = [
+            // Windows-1251 БЕЗ BOM, чтобы Excel открыл без артефактов
+            'Content-Type'        => 'text/csv; charset=Windows-1251',
+            'Content-Disposition' => "attachment; filename=\"$filename\"",
+            'Cache-Control'       => 'no-store, no-cache, must-revalidate, max-age=0',
+        ];
+
+        // Итоги
+        $totClicks = 0;
+        $totValid = 0;
+        $totRevenue = 0.0;
         foreach ($rows as $r) {
-            // Формат периода как на экране
-            $pretty = $r->d;
-            try {
-                if ($group === 'day')   { $pretty = \Illuminate\Support\Carbon::parse($r->d)->translatedFormat('d.m.Y'); }
-                if ($group === 'month') { $pretty = \Illuminate\Support\Carbon::parse($r->d)->translatedFormat('m.Y'); }
-                if ($group === 'year')  { $pretty = \Illuminate\Support\Carbon::parse($r->d)->translatedFormat('Y'); }
-            } catch (\Throwable $e) {}
-
-            // Числа: десятичная запятая, БЕЗ разделителя тысяч (чтобы Excel видел число)
-            $rev = number_format((float) $r->wm_revenue, 2, ',', '');
-
-            $write([
-                $pretty,
-                (int) $r->clicks_total,
-                (int) $r->clicks_valid,
-                $rev,
-            ]);
+            $totClicks  += (int) $r->clicks_total;
+            $totValid   += (int) $r->clicks_valid;
+            $totRevenue += (float) $r->wm_revenue;
         }
 
-        // Итого — теми же правилами (без разделителя тысяч)
-        $write([
-            'Итого',
-            (int) $totClicks,
-            (int) $totValid,
-            number_format((float) $totRevenue, 2, ',', ''),
-        ]);
+        return response()->stream(function () use ($rows, $group, $delimiter, $totClicks, $totValid, $totRevenue) {
+            // НЕ выводим BOM. Сразу даём подсказку Excel про разделитель:
+            echo "sep={$delimiter}\r\n";
 
-        fclose($out);
-    }, 200, $headers);
-}
+            $out = fopen('php://output', 'w');
 
+            // хелпер для кодирования строки в CP1251 перед записью
+            $write = function (array $fields) use ($out, $delimiter) {
+                $encoded = array_map(fn($v) => mb_convert_encoding((string)$v, 'Windows-1251', 'UTF-8'), $fields);
+                fputcsv($out, $encoded, $delimiter);
+            };
 
+            // Заголовки
+            $write(['Период (' . $group . ')','Клики (всего)','Клики (валидные)','Доход WM, руб.']);
 
+            foreach ($rows as $r) {
+                // Формат периода как на экране
+                $pretty = $r->d;
+                try {
+                    if ($group === 'day') {
+                        $pretty = Carbon::parse($r->d)->translatedFormat('d.m.Y');
+                    } elseif ($group === 'month') {
+                        $pretty = Carbon::parse($r->d)->translatedFormat('m.Y');
+                    } elseif ($group === 'year') {
+                        $pretty = Carbon::parse($r->d)->translatedFormat('Y');
+                    }
+                } catch (\Throwable $e) {
+                }
+
+                // Числа: десятичная запятая, БЕЗ разделителя тысяч
+                $write([
+                    $pretty,
+                    (int) $r->clicks_total,
+                    (int) $r->clicks_valid,
+                    number_format((float) $r->wm_revenue, 2, ',', ''),
+                ]);
+            }
+
+            // Итого — теми же правилами
+            $write([
+                'Итого',
+                (int) $totClicks,
+                (int) $totValid,
+                number_format((float) $totRevenue, 2, ',', ''),
+            ]);
+
+            fclose($out);
+        }, 200, $headers);
+    }
 }

@@ -1,4 +1,12 @@
 {{-- resources/views/wm/stats.blade.php --}}
+
+<noscript>
+  <div class="bg-yellow-50 border border-yellow-300 text-yellow-800 p-3 rounded mb-4">
+    Для корректной работы этой страницы (графики, интерактив, перетаскивание) требуется включить JavaScript.
+  </div>
+</noscript>
+
+
 <x-app-layout>
     <x-slot name="header">
         <div class="flex items-center justify-between">
