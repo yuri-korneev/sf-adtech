@@ -22,3 +22,5 @@
 Homestead.json
 Homestead.yaml
 Thumbs.db
+
+printf '\n# ignore local archives\n*.zip\n*.rar\n*.7z\n' >> .gitignore

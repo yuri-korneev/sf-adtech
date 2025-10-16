@@ -1,9 +1,35 @@
 <nav x-data="{ open: false }" class="bg-white border-b border-gray-100">
     @php
-        // Единые классы для ссылок (desktop / mobile), чтобы убрать фиолетовый и бордеры активной ссылки
+        // Единые классы ссылок
         $navClassesDesktop = 'border-transparent focus:border-transparent text-gray-700 hover:text-gray-900';
         $navClassesMobile  = 'border-transparent focus:border-transparent text-gray-700 hover:text-gray-900 hover:bg-gray-50';
+
+        // Роль (slug) из пользователя
         $role = auth()->check() ? (auth()->user()->role ?? null) : null;
+
+        // Маппинг ENG -> RU
+        $roleRuMap = [
+            'admin'       => 'Админ',
+            'webmaster'   => 'Веб-мастер',
+            'advertiser'  => 'Рекламодатель',
+        ];
+        $roleRu = $role ? ($roleRuMap[$role] ?? ucfirst($role)) : null;
+
+        // Имя пользователя
+        $rawName = auth()->check() ? (auth()->user()->name ?? '') : '';
+        $name = trim(preg_replace('/\s+/u', ' ', (string)$rawName));
+        $nameLower = mb_strtolower($name);
+
+        // Любые «служебные» имена считаем ярлыками роли — их скрываем
+        $serviceNames = [
+            'admin','administrator','админ','администратор',
+            'webmaster','web master','вебмастер','веб-мастер',
+            'advertiser','publisher','рекламодатель'
+        ];
+        $isServiceName = in_array($nameLower, $serviceNames, true);
+
+        // Показываем имя только если оно не служебное
+        $showName = $name && !$isServiceName;
     @endphp
 
     <!-- Primary Navigation Menu -->
@@ -57,7 +83,6 @@
                             <x-nav-link :href="route('adv.stats')" :active="request()->routeIs('adv.stats')" class="{{ $navClassesDesktop }}">
                                 {{ __('Статистика') }}
                             </x-nav-link>
-                            {{-- В верхнем меню НЕ добавляем "Статистика по офферам" по вашему требованию --}}
                         @endif
 
                         {{-- Веб-мастер --}}
@@ -85,7 +110,16 @@
                     <x-dropdown align="right" width="48">
                         <x-slot name="trigger">
                             <button class="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-gray-500 bg-white hover:text-gray-700 focus:outline-none transition ease-in-out duration-150">
-                                <div>{{ Auth::user()->name }}</div>
+                                <div class="flex items-center gap-2">
+                                    @if($showName)
+                                        <span>{{ $name }}</span>
+                                    @endif
+                                    @if($roleRu)
+                                        <span class="inline-flex items-center rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-700">
+                                            {{ $roleRu }}
+                                        </span>
+                                    @endif
+                                </div>
                                 <div class="ms-1">
                                     <svg class="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
                                         <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
@@ -188,7 +222,16 @@
         @auth
             <div class="pt-4 pb-1 border-t border-gray-200">
                 <div class="px-4">
-                    <div class="font-medium text-base text-gray-800">{{ Auth::user()->name }}</div>
+                    <div class="font-medium text-base text-gray-800 flex items-center gap-2">
+                        @if($showName)
+                            <span>{{ $name }}</span>
+                        @endif
+                        @if($roleRu)
+                            <span class="inline-flex items-center rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-700">
+                                {{ $roleRu }}
+                            </span>
+                        @endif
+                    </div>
                     <div class="font-medium text-sm text-gray-500">{{ Auth::user()->email }}</div>
                 </div>
 

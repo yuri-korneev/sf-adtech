@@ -1,4 +1,12 @@
 {{-- resources/views/adv/offers/index.blade.php --}}
+
+<noscript>
+  <div class="bg-yellow-50 border border-yellow-300 text-yellow-800 p-3 rounded mb-4">
+    Для корректной работы этой страницы (графики, интерактив, перетаскивание) требуется включить JavaScript.
+  </div>
+</noscript>
+
+
 <x-app-layout>
     <x-slot name="header">
         <div class="flex items-center justify-between">
@@ -17,8 +25,16 @@
         </div>
     </x-slot>
 
-    {{-- Локальные стили — выравнивание и ширины колонок --}}
+    {{-- Сообщение для пользователей без JS (требование ТЗ) --}}
+    <noscript>
+        <div class="bg-yellow-50 border border-yellow-300 text-yellow-800 p-3 rounded mb-4 mx-4">
+            Для корректной работы Kanban и некоторых фильтров требуется включить JavaScript.
+        </div>
+    </noscript>
+
+    {{-- Локальные стили: таблица + Kanban --}}
     <style>
+        /* ====== Таблица ====== */
         #offersTable thead th { text-align: center !important; vertical-align: middle !important; }
         #offersTable tbody td { text-align: center !important; vertical-align: middle !important; }
 
@@ -31,7 +47,7 @@
         #offersTable th:nth-child(6) { width: 8%  !important; } /* Подписано */
         #offersTable th:nth-child(7) { width: 6%  !important; } /* Действия */
 
-        /* перенос длинных URL по центру */
+        /* перенос длинных URL */
         #offersTable td.url a {
             word-break: break-word;
             overflow-wrap: anywhere;
@@ -39,27 +55,38 @@
             max-width: 100%;
         }
 
-        /* ховеры для ссылок/кнопок действий */
+        /* действия */
         #offersTable .action-link {
             color: #1d4ed8; /* blue-700 */
             text-decoration: underline;
             transition: color .15s ease;
         }
-        #offersTable .action-link:hover {
-            color: #1e3a8a !important; /* blue-900 */
-        }
+        #offersTable .action-link:hover { color: #1e3a8a !important; }
         #offersTable .action-btn {
-            color: #b91c1c; /* red-700 */
-            text-decoration: underline;
-            background: transparent;
-            border: none;
-            padding: 0;
-            cursor: pointer;
+            color: #b91c1c; background: transparent; border: none;
+            text-decoration: underline; padding: 0; cursor: pointer;
             transition: color .15s ease;
         }
-        #offersTable .action-btn:hover {
-            color: #7f1d1d !important; /* red-900 */
+        #offersTable .action-btn:hover { color: #7f1d1d !important; }
+
+        /* ====== Kanban ====== */
+        #offers-kanban { display: grid; grid-template-columns: 1fr; gap: 1rem; }
+        @media (min-width: 768px) { #offers-kanban { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+
+        .kanban-col {
+            min-height: 96px;
+            display: flex; flex-direction: column; gap: .5rem;
+            background: #fff; border: 1px solid #e5e7eb; border-radius: .5rem; padding: .75rem;
         }
+        .kanban-col-title { font-weight: 600; margin-bottom: .25rem; }
+
+        .kanban-card {
+            background: #f9fafb; border: 1px solid #d1d5db; border-radius: .5rem;
+            padding: .5rem .625rem; cursor: grab;
+        }
+        .kanban-card:active { cursor: grabbing; }
+        .kanban-card .name { font-size: .875rem; font-weight: 600; color: #111827; }
+        .kanban-card .url  { font-size: .75rem;  color: #6b7280; word-break: break-word; }
     </style>
 
     <div class="py-6">
@@ -99,6 +126,32 @@
                 </div>
             @endif
 
+            {{-- ===== Kanban: статусы офферов ===== --}}
+            <div id="offers-kanban" class="my-6">
+                @php
+                    $cols = [
+                        'draft'    => 'Черновик',
+                        'active'   => 'Активен',
+                        'paused'   => 'Пауза',
+                        'archived' => 'Архив',
+                    ];
+                @endphp
+
+                @foreach($cols as $code => $title)
+                    <div class="kanban-col" data-status="{{ $code }}">
+                        <div class="kanban-col-title">{{ $title }}</div>
+
+                        @foreach($offers->where('status', $code) as $o)
+                            <div class="kanban-card" data-offer-id="{{ $o->id }}">
+                                <div class="name">{{ $o->name }}</div>
+                                <div class="url">{{ $o->target_url }}</div>
+                            </div>
+                        @endforeach
+                    </div>
+                @endforeach
+            </div>
+
+            {{-- Таблица --}}
             <div class="overflow-x-auto bg-white border rounded">
                 <table id="offersTable" class="w-full">
                     <thead class="border-b bg-gray-50">
@@ -113,7 +166,7 @@
                         </tr>
                     </thead>
                     <tbody>
-                        @forelse($offers as $o)
+                        @forelse($list as $o)
                             <tr class="border-t hover:bg-gray-50">
                                 {{-- Название --}}
                                 <td class="p-3">
@@ -121,7 +174,7 @@
                                     <div class="text-xs text-gray-500">ID: {{ $o->id }}</div>
                                 </td>
 
-                                {{-- CPC оффера (источник истины по ТЗ) --}}
+                                {{-- CPC (источник истины по ТЗ) --}}
                                 <td class="p-3 whitespace-nowrap">
                                     {{ number_format((float)$o->cpc, 4, ',', ' ') }}
                                 </td>
@@ -136,10 +189,18 @@
 
                                 {{-- Статус --}}
                                 <td class="p-3">
-                                    @if($o->is_active)
+                                    @php
+                                        // если новое поле 'status' есть — используем его, иначе резервно по is_active
+                                        $statusCode = $o->status ?? ($o->is_active ? 'active' : 'paused');
+                                    @endphp
+                                    @if($statusCode === 'active')
                                         <span class="px-2 py-1 rounded text-xs bg-green-100 text-green-800">Активен</span>
+                                    @elseif($statusCode === 'paused')
+                                        <span class="px-2 py-1 rounded text-xs bg-gray-200 text-gray-700">Пауза</span>
+                                    @elseif($statusCode === 'draft')
+                                        <span class="px-2 py-1 rounded text-xs bg-amber-100 text-amber-800">Черновик</span>
                                     @else
-                                        <span class="px-2 py-1 rounded text-xs bg-gray-200 text-gray-700">Неактивен</span>
+                                        <span class="px-2 py-1 rounded text-xs bg-slate-200 text-slate-700">Архив</span>
                                     @endif
                                 </td>
 
@@ -191,8 +252,45 @@
             </div>
 
             <div class="mt-4">
-                {{ $offers->links() }}
+                {{ $list->links() }}
             </div>
         </div>
     </div>
+
+    {{-- SortableJS для Kanban --}}
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const tokenMeta = document.querySelector('meta[name="csrf-token"]');
+        const token = tokenMeta ? tokenMeta.getAttribute('content') : '';
+
+        document.querySelectorAll('#offers-kanban .kanban-col').forEach(col => {
+            new Sortable(col, {
+                group: 'offers',
+                animation: 150,
+                onEnd: async (evt) => {
+                    const card = evt.item;
+                    const offerId = card.getAttribute('data-offer-id');
+                    const newStatus = evt.to.getAttribute('data-status');
+                    try {
+                        const res = await fetch(`{{ url('/adv/offers') }}/${offerId}/status`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-CSRF-TOKEN': token,
+                                'X-Requested-With': 'XMLHttpRequest'
+                            },
+                            body: JSON.stringify({ status: newStatus })
+                        });
+                        if (!res.ok) throw new Error('Bad response');
+                    } catch (e) {
+                        // Откат визуально — вернём карточку на место
+                        evt.from.insertBefore(card, evt.from.children[evt.oldIndex] || null);
+                        alert('Не удалось сохранить статус. Попробуйте ещё раз.');
+                    }
+                }
+            });
+        });
+    });
+    </script>
 </x-app-layout>

@@ -1,61 +1,236 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# SF-AdTech — учебный трекер трафика на Laravel
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Многорольное приложение (**Admin**, **Advertiser/Adv**, **Webmaster/WM**) для учёта переходов по партнёрским ссылкам, с редиректором `/r/{token}`, ролями и правами, статистикой по дням/месяцам/годам, экспортами CSV, очередями для логирования кликов и пометки редиректов. 
 
-## About Laravel
+> Технологии: **Laravel 12**, **PHP 8.3**, **MySQL 8.x**, **Blade + Tailwind**, очереди **database**.
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+---
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+## Содержание
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+- [Демо-возможности по ролям](#демо-возможности-по-ролям)
+- [Архитектура и ключевые модули](#архитектура-и-ключевые-модули)
+- [Быстрый старт (локально / Homestead)](#быстрый-старт-локально--homestead)
+- [Конфигурация `.env`](#конфигурация-env)
+- [Структура БД и сиды](#структура-бд-и-сиды)
+- [Редиректор `/r/{token}`: как работает](#редиректор-rtoken-как-работает)
+- [Статистика и экспорт CSV](#статистика-и-экспорт-csv)
+- [Безопасность](#безопасность)
+- [Кодстайл и утилиты](#кодстайл-и-утилиты)
+- [Чек-лист соответствия ТЗ](#чек-лист-соответствия-тз)
+- [Лицензия](#лицензия)
 
-## Learning Laravel
+---
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+## Демо-возможности по ролям
 
-You may also try the [Laravel Bootcamp](https://bootcamp.laravel.com), where you will be guided through building a modern Laravel application from scratch.
+### Admin (`/admin`)
+- Управление пользователями (активация/деактивация).
+- Список офферов, темы (topics), подписки (выданные ссылки).
+- Сводка кликов и **разрезов** по дням/месяцам/годам, **CSV-экспорт**.
+- Контроль отказов (клик с неподписанного WM → 404).
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+### Advertiser (`/adv`)
+- **Офферы (CRUD)**: имя, CPC, целевой URL, список тем (many-to-many), активность, статус.
+- **Подписчики** (веб-мастера) по каждому офферу.
+- Статистика расходов и кликов по дням/месяцам/годам, **CSV-экспорт**.
+- **Kanban**-представление статусов офферов.
 
-## Laravel Sponsors
+### Webmaster (`/wm`)
+- Список собственных подписок (офферы, на которые подписан).
+- **Подписаться** на оффер (зафиксировать свою ставку), получить **персональную ссылку**.
+- **Отписаться** от оффера.
+- Доходы и клики по дням/месяцам/годам, **CSV-экспорт**.
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+**Демо-аккаунты для входа:**
 
-### Premium Partners
+| Роль        | Email                  | Пароль   |
+|-------------|-------------------------|----------|
+| Admin       | admin@example.com       | secret123 |
+| Advertiser  | adv1@example.com         | secret123 |
+| Webmaster   | wm1@example.com          | secret123 |
+и т.д.
 
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
+---
 
-## Contributing
+## Архитектура и ключевые модули
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+- **MVC (Laravel)**
+  - **Модели:** `User`, `Offer`, `Topic`, `Subscription`, `Click`.
+  - **Контроллеры:**
+    - `Admin\AdminController`, `Admin\TopicController`
+    - `Adv\DashboardController`, `Adv\OfferController`
+    - `Wm\DashboardController`, `Wm\SubscriptionController`, `Wm\StatsController`
+    - `RedirectController` — публичный редиректор `/r/{token}`.
+- **Очереди / Jobs**
+  - `LogClickJob` — асинхронно логирует клик (ip, ua, referer/referrer, token).
+  - `MarkRedirectedJob` — идемпотентно проставляет `redirected_at` с учётом окна дедупликации.
+- **Конфиг проекта:** `config/sf.php`
+  - `commission` / `system_commission`
+  - `dedup_window_seconds` (по умолчанию 600 сек)
+  - лимиты статистики (период, max_days).
+- **Маршруты:** `routes/web.php`
+  - Группы для `admin`, `adv`, `wm` с middleware `auth` + `role:*`.
+  - Rate limiting для редиректора: `throttle:redirects` (на IP).
+- **Вёрстка:** Blade + Tailwind.
 
-## Code of Conduct
+---
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+## Быстрый старт (локально / Homestead)
 
-## Security Vulnerabilities
+### 1) Клонирование и зависимости
+```bash
+git clone <repo-url> sf-adtech
+cd sf-adtech
+composer install
+npm install
+```
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+### 2) Конфиг `.env`
+```bash
+cp .env.example .env
+php artisan key:generate
+```
 
-## License
+Заполните секцию БД (MySQL 8.x) и URL проекта, например:
+```dotenv
+APP_URL=http://sf-adtech.test
+```
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+Для очередей:
+```dotenv
+QUEUE_CONNECTION=database
+```
+
+**Homestead (рекомендуется):**
+- Добавьте сайт `sf-adtech.test` в `Homestead.yaml`, пробросьте папку проекта.
+- Выполняйте `php artisan` **изнутри** VM (`vagrant ssh`).
+
+### 3) Миграции, сиды, очереди, ассеты
+```bash
+php artisan migrate --seed
+php artisan queue:table && php artisan migrate   # если не создана таблица jobs
+php artisan queue:work                           # запустить воркер для кликов/редиректов
+npm run dev                                      # ассеты (во время разработки)
+```
+
+---
+
+## Конфигурация `.env`
+
+Минимально важно:
+```dotenv
+APP_ENV=local
+APP_DEBUG=true
+APP_URL=http://sf-adtech.test
+
+DB_CONNECTION=mysql
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_DATABASE=sfadtech
+DB_USERNAME=homestead
+DB_PASSWORD=secret
+
+QUEUE_CONNECTION=database
+SESSION_DRIVER=database
+```
+
+Параметры из `config/sf.php` можно вынести в `.env`:
+```dotenv
+SYSTEM_COMMISSION=0.20
+DEDUP_WINDOW_SECONDS=600
+STATS_DEFAULT_PERIOD=7d
+STATS_MAX_DAYS=365
+```
+
+---
+
+## Структура БД и сиды
+
+**Основные таблицы:**
+- `users` — роли `role` (`admin|adv|wm`), активность `is_active`.
+- `offers` — `advertiser_id`, `name`, `cpc`, `target_url`, `is_active`, `status`.
+- `topics` и `offer_topic` — связь офферов и тем (many-to-many).
+- `subscriptions` — `wm_id`, `offer_id`, `token`, `wm_cpc`, `is_active`, timestamps.
+- `clicks` — `subscription_id`, `token`, `ip`, `ua`, `referer`, `clicked_at`, `redirected_at`, `is_valid`, `invalid_reason`.
+
+**Сиды:**
+- `RoleAndUserSeeder` — три пользователя (admin/adv/wm), роли и активность.
+- `TopicsSeeder` — базовый набор тем.
+- (Опционально) сиды кликов для учебных графиков/отчётов.
+
+> SQL-дамп лежит в `database/dumps/…sql`.
+
+---
+
+## Редиректор `/r/{token}`: как работает
+
+1. **Валидация подписки и оффера**: токен принадлежит активной подписке WM на активный оффер с `target_url`. При несоответствии возвращается `404` и записывается причина в `clicks`.
+2. **Построение финального URL**: сохраняется исходная query-строка пользователя.
+3. **Асинхронное логирование** (`LogClickJob`): IP, UA, referer/referrer, token. Ошибки логирования не влияют на UX (best-effort).
+4. **Идемпотентная пометка `redirected_at`**:
+   - используется окно «свежести» из `config('sf.dedup_window_seconds')` (дефолт 600 секунд);
+   - помечается наиболее свежий неотмеченный клик; при гонках используется `MarkRedirectedJob`.
+5. **Редирект**: `302` на целевой URL.
+6. **Защита**: `RateLimiter` для `/r/{token}` (на IP).
+
+---
+
+## Статистика и экспорт CSV
+
+- Отчёты по дням / месяцам / годам с выбором диапазона (ограничение глубины предусмотрено).
+- Табличные представления и экспорт CSV во всех ролях.
+- В админ-отчёте метрики revenue учитывают `commission` из конфигурации.
+
+---
+
+## Безопасность
+
+- CSRF — маркеры во всех формах, стандартная защита Laravel.
+- XSS — экранирование шаблонов Blade по умолчанию.
+- SQL-инъекции — запросы через Eloquent/Query Builder.
+- Роли/доступ — middleware `auth` + `role:*`.
+- Rate limiting — для публичного маршрута редиректора.
+- Сессии — `SESSION_DRIVER=database`.
+
+---
+
+## Кодстайл и утилиты
+
+- PHP — PSR-12 (`phpcs`), автофиксы `phpcbf`.
+- JS — ESLint + Prettier.
+- Полезные команды:
+  ```bash
+  composer run lint:php
+  composer run lint:js
+  composer test
+
+  php artisan route:list
+  php artisan tinker
+  php artisan queue:work
+  ```
+- При необходимости:
+  ```bash
+  php artisan session:table && php artisan migrate
+  ```
+
+---
+
+## Чек-лист соответствия ТЗ
+
+- Наличие трёх ролей: Admin, Advertiser, Webmaster, разграничение доступа по ролям.
+- Реализация публичного редиректора `/r/{token}` с валидацией подписки/оффера, логированием кликов, пометкой `redirected_at`, обработкой 404 и 302-редиректом.
+- Возможность подписки/отписки вебмастера на офферы и получение персональной ссылки (токена).
+- Наличие отчётов по дням/месяцам/годам и экспорта CSV в разделах всех ролей.
+- Учёт комиссии системы в админ-отчёте, конфигурирование комиссии через `config/sf.php`/`.env`.
+- Использование очередей для асинхронного логирования кликов и пометки редиректов.
+- Структура БД через миграции, наличие сидов для стартовых ролей/пользователей/тем.
+- Базовые меры безопасности (CSRF, XSS, защита от SQL-инъекций), rate limiting редиректора.
+- Наличие git-репозитория и инструкций по разворачиванию проекта.
+
+---
+
+## Лицензия
+
+Свободно для учебного использования.  
+Автор: **Iurii Korneev**.

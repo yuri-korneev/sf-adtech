@@ -13,8 +13,8 @@ class TopicController extends Controller
         $q = trim((string)$request->get('q', ''));
 
         $topics = Topic::query()
-            ->withCount('offers') // ← добавили счётчик привязанных офферов
-            ->when($q !== '', fn($qb) => $qb->where('name', 'like', '%'.$q.'%'))
+            ->withCount('offers') // добавили счётчик привязанных офферов
+            ->when($q !== '', fn($qb) => $qb->where('name', 'like', '%' . $q . '%'))
             ->orderBy('name')
             ->paginate(15)
             ->withQueryString();
@@ -47,7 +47,7 @@ class TopicController extends Controller
     public function update(Request $request, Topic $topic)
     {
         $data = $request->validate([
-            'name' => ['required','string','max:255','unique:topics,name,'.$topic->id],
+            'name' => ['required','string','max:255','unique:topics,name,' . $topic->id],
         ]);
 
         $topic->update($data);
@@ -71,6 +71,4 @@ class TopicController extends Controller
             ->route('admin.topics.index')
             ->with('status', 'Тема удалена');
     }
-
-
 }
